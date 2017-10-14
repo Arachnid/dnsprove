@@ -1,5 +1,4 @@
 // Copyright 2017 Nick Johnson. All rights reserved.
-// Portions copyright 2011 Miek Gieben.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -10,16 +9,31 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
+	"math/big"
+	"net"
 	"os"
 	"strings"
 
+	"github.com/arachnid/dnsprove/oracle"
+	"github.com/arachnid/dnsprove/proofs"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/miekg/dns"
+	"github.com/ethereum/go-ethereum/ethclient"
+	log "github.com/inconshreveable/log15"
+	prompt "github.com/segmentio/go-prompt"
 )
 
 var (
 	hashes          = flag.String("hashes", "SHA256", "a comma-separated list of supported hash algorithms")
 	algorithms      = flag.String("algorithms", "RSASHA256", "a comma-separated list of supported digest algorithms")
+	verbosity       = flag.Int("verbosity", 3, "logging level verbosity (0-4)")
+	print           = flag.Bool("print", false, "don't upload to the contract, just print proof data")
+	rpc             = flag.String("rpc", "http://localhost:8545", "RPC path to Ethereum node")
+	address         = flag.String("address", "", "Contract address for DNSSEC oracle")
+	keyfile         = flag.String("keyfile", "", "Path to JSON keyfile")
+	gasprice        = flag.Float64("gasprice", 5.0, "Gas price, in gwei")
+	yes             = flag.Bool("yes", false, "Do not prompt before sending transactions")
 	trustAnchors = []*dns.DS{
 		&dns.DS{
 			Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeDS, Class: dns.ClassINET},
@@ -37,11 +51,6 @@ var (
 		},
 	}
 )
-
-type signedSet struct {
-	sig *dns.RRSIG
-	rrs []dns.RR
-}
 
 type dnskeyEntry struct {
 	name string
@@ -116,11 +125,14 @@ func (client *Client) Query(qtype uint16, qclass uint16, name string) (*dns.Msg,
 	m.Id = dns.Id()
 
 	r, _, err := client.c.Exchange(m, client.nameserver)
-	log.Printf("%s\n", r.String())
+	if err == nil {
+		log.Debug("DNS response:\n" + r.String())
+		log.Info("DNS query", "class", dns.ClassToString[qclass], "type", dns.TypeToString[qtype], "name", name, "answers", len(r.Answer), "nses", len(r.Ns))
+	}
 	return r, err
 }
 
-func (client *Client) QueryWithProof(qtype, qclass uint16, name string) ([]signedSet, error) {
+func (client *Client) QueryWithProof(qtype, qclass uint16, name string) ([]proofs.SignedSet, error) {
 		if name[len(name) - 1] != '.' {
 			name = name + "."
 		}
@@ -140,21 +152,21 @@ func (client *Client) QueryWithProof(qtype, qclass uint16, name string) ([]signe
 			sig := sig.(*dns.RRSIG)
 			ret, err := client.verifyRRSet(sig, rrs)
 			if err == nil {
-				ret = append(ret, signedSet{sig, rrs})
+				ret = append(ret, proofs.SignedSet{sig, rrs})
 				return ret, nil
 			}
-			log.Printf("Failed to verify RRSET for %s %s %s with signature %s (%s/%d): %s\n", dns.ClassToString[qclass], dns.TypeToString[qtype], name, sig.SignerName, dns.AlgorithmToString[sig.Algorithm], sig.KeyTag, err)
+			log.Warn("Failed to verify RRSET", "class", dns.ClassToString[qclass], "type", dns.TypeToString[qtype], "name", name, "signername", sig.SignerName, "algorithm", dns.AlgorithmToString[sig.Algorithm], "keytag", sig.KeyTag, "err", err)
 		}
 
 		return nil, fmt.Errorf("Could not validate %s %s %s: no valid signatures found", dns.ClassToString[qclass], dns.TypeToString[qtype], name)
 }
 
-func (client *Client) verifyRRSet(sig *dns.RRSIG, rrs []dns.RR) ([]signedSet, error) {
+func (client *Client) verifyRRSet(sig *dns.RRSIG, rrs []dns.RR) ([]proofs.SignedSet, error) {
 	if !client.supportsAlgorithm(sig.Algorithm) {
 		return nil, fmt.Errorf("Unsupported algorithm: %s", dns.AlgorithmToString[sig.Algorithm])
 	}
 
-	var sets []signedSet
+	var sets []proofs.SignedSet
 	var keys []dns.RR
 	var err error
 	if sig.Header().Name == sig.SignerName && rrs[0].Header().Rrtype == dns.TypeDNSKEY {
@@ -163,7 +175,7 @@ func (client *Client) verifyRRSet(sig *dns.RRSIG, rrs []dns.RR) ([]signedSet, er
 	} else {
 		// Find the keys that signed this RRSET
 		sets, err = client.QueryWithProof(dns.TypeDNSKEY, sig.Header().Class, sig.SignerName)
-		keys = sets[len(sets)-1].rrs
+		keys = sets[len(sets)-1].Rrs
 	}
 	if err != nil {
 		return nil, err
@@ -190,7 +202,7 @@ func (client *Client) verifyRRSet(sig *dns.RRSIG, rrs []dns.RR) ([]signedSet, er
 	return nil, fmt.Errorf("Could not validate signature for %s %s %s (%s/%d); no valid keys found", dns.ClassToString[sig.Header().Class], dns.TypeToString[sig.Header().Rrtype], sig.Header().Name, dns.AlgorithmToString[sig.Algorithm], sig.KeyTag)
 }
 
-func (client *Client) verifyWithDS(key *dns.DNSKEY) ([]signedSet, error) {
+func (client *Client) verifyWithDS(key *dns.DNSKEY) ([]proofs.SignedSet, error) {
 	keytag := key.KeyTag()
 	// Check the roots
 	for _, ds := range client.knownHashes[dnskeyEntry{key.Header().Name, key.Algorithm, keytag}] {
@@ -198,7 +210,7 @@ func (client *Client) verifyWithDS(key *dns.DNSKEY) ([]signedSet, error) {
 			continue
 		}
 		if strings.ToLower(key.ToDS(ds.DigestType).Digest) == strings.ToLower(ds.Digest) {
-			return []signedSet{}, nil
+			return []proofs.SignedSet{}, nil
 		}
 	}
 
@@ -207,7 +219,7 @@ func (client *Client) verifyWithDS(key *dns.DNSKEY) ([]signedSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, ds := range sets[len(sets) - 1].rrs {
+	for _, ds := range sets[len(sets) - 1].Rrs {
 		ds := ds.(*dns.DS)
 		if !client.supportsDigest(ds.DigestType) {
 			continue
@@ -250,9 +262,12 @@ func main() {
 		return
 	}
 
+	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*verbosity), log.StreamHandler(os.Stderr, log.TerminalFormat())))
+
 	qtype, ok := dns.StringToType[flag.Arg(0)]
 	if !ok {
-		log.Fatalf("Unrecognised query type: %s\n", flag.Arg(0))
+		log.Crit("Unrecognised query type", "type", flag.Arg(0))
+		os.Exit(1)
 	}
 	qclass := uint16(dns.ClassINET)
 	name := flag.Arg(1)
@@ -272,20 +287,85 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	nameserver := conf.Servers[0] + ":53"
+	nameserver := net.JoinHostPort(conf.Servers[0], "53")
 
 	client := NewClient(nameserver, trustAnchors, algmap, hashmap)
-	proofs, err := client.QueryWithProof(qtype, qclass, name)
+	sets, err := client.QueryWithProof(qtype, qclass, name)
 	if err != nil {
-		log.Fatalf("Error resolving: %v\n", err)
+		log.Crit("Error resolving", "name", name, "err", err)
 		return
 	}
 
-	fmt.Printf("Proofs:\n")
-	for _, proof := range proofs {
-		fmt.Printf("\n%s\n", proof.sig.String())
-		for _, rr := range proof.rrs {
-			fmt.Printf("%s\n", rr.String())
+	if *print {
+		for _, proof := range sets {
+			fmt.Printf("\n// %s\n", proof.Sig.String())
+			for _, rr := range proof.Rrs {
+				for _, line := range strings.Split(rr.String(), "\n") {
+					fmt.Printf("// %s\n", line)
+				}
+			}
+			data, sig, err := proof.Pack()
+			if err != nil {
+				log.Crit("Error packing RRSet", "err", err)
+				os.Exit(1)
+			}
+			fmt.Printf("[\"%x\", \"%x\"],\n", data, sig)
 		}
+	} else {
+		conn, err := ethclient.Dial(*rpc)
+		if err != nil {
+			log.Crit("Error connecting to Ethereum node", "err", err)
+			os.Exit(1)
+		}
+
+		o, err := oracle.NewOracle(common.HexToAddress(*address), conn)
+		if err != nil {
+			log.Crit("Error creating oracle", "err", err)
+			os.Exit(1)
+		}
+
+		sets, err = o.FilterProofs(sets)
+		if err != nil {
+			log.Crit("Error filtering proofs", "err", err)
+			os.Exit(1)
+		}
+
+		if len(sets) == 0 {
+			fmt.Printf("Nothing to do; exiting.\n")
+			os.Exit(0)
+		}
+
+		if !*yes {
+			if !prompt.Confirm("Send %d transactions to prove %s %s onchain?", len(sets), dns.TypeToString[qtype], name) {
+				fmt.Printf("Exiting at user request.\n")
+				return
+			}
+		}
+
+		key, err := os.Open(*keyfile)
+		if err != nil {
+			log.Crit("Could not open keyfile", "err", err)
+			os.Exit(1)
+		}
+
+		pass := prompt.Password("Password")
+		auth, err := bind.NewTransactor(key, pass)
+		if err != nil {
+			log.Crit("Could not create transactor", "err", err)
+			os.Exit(1)
+		}
+		auth.GasPrice = big.NewInt(int64(*gasprice * 1000000000))
+
+		txs, err := o.SendProofs(auth, sets)
+		if err != nil {
+			log.Crit("Error sending proofs", "err", err)
+			os.Exit(1)
+		}
+
+		txids := make([]common.Hash, 0, len(txs))
+		for _, tx := range txs {
+			txids = append(txids, tx.Hash())
+		}
+		log.Info("Transactions sent", "txids", txids)
 	}
 }
