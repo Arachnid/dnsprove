@@ -175,10 +175,10 @@ func (client *Client) verifyRRSet(sig *dns.RRSIG, rrs []dns.RR) ([]proofs.Signed
 	} else {
 		// Find the keys that signed this RRSET
 		sets, err = client.QueryWithProof(dns.TypeDNSKEY, sig.Header().Class, sig.SignerName)
+		if err != nil {
+			return nil, err
+		}
 		keys = sets[len(sets)-1].Rrs
-	}
-	if err != nil {
-		return nil, err
 	}
 
 	// Iterate over the keys looking for one that validly signs our RRSET
