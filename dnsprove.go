@@ -7,10 +7,12 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"math/big"
-	"net"
+	"net/http"
 	"os"
 	"strings"
 
@@ -25,6 +27,7 @@ import (
 )
 
 var (
+	server          = flag.String("server", "https://dns.google.com/experimental", "The URL of the dns-over-https server to use")
 	hashes          = flag.String("hashes", "SHA256", "a comma-separated list of supported hash algorithms")
 	algorithms      = flag.String("algorithms", "RSASHA256", "a comma-separated list of supported digest algorithms")
 	verbosity       = flag.Int("verbosity", 3, "logging level verbosity (0-4)")
@@ -124,12 +127,33 @@ func (client *Client) Query(qtype uint16, qclass uint16, name string) (*dns.Msg,
 	m.Extra = append(m.Extra, o)
 	m.Id = dns.Id()
 
-	r, _, err := client.c.Exchange(m, client.nameserver)
+	req, err := m.Pack()
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := http.Post(client.nameserver, "application/dns-udpwireformat", bytes.NewReader(req))
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != 200 {
+		return nil, fmt.Errorf("Got unexpected status from server: %s", response.Status)
+	}
+
+	data, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var r dns.Msg
+	err = r.Unpack(data)
 	if err == nil {
 		log.Debug("DNS response:\n" + r.String())
 		log.Info("DNS query", "class", dns.ClassToString[qclass], "type", dns.TypeToString[qtype], "name", name, "answers", len(r.Answer), "nses", len(r.Ns))
 	}
-	return r, err
+	return &r, err
 }
 
 func (client *Client) QueryWithProof(qtype, qclass uint16, name string) ([]proofs.SignedSet, error) {
@@ -282,14 +306,7 @@ func main() {
 		algmap[dns.StringToAlgorithm[algname]] = struct{}{}
 	}
 
-	conf, err := dns.ClientConfigFromFile("/etc/resolv.conf")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	nameserver := net.JoinHostPort(conf.Servers[0], "53")
-
-	client := NewClient(nameserver, trustAnchors, algmap, hashmap)
+	client := NewClient(*server, trustAnchors, algmap, hashmap)
 	sets, err := client.QueryWithProof(qtype, qclass, name)
 	if err != nil {
 		log.Crit("Error resolving", "name", name, "err", err)
