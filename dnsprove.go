@@ -152,7 +152,7 @@ func (client *Client) QueryWithProof(qtype, qclass uint16, name string) ([]proof
 			sig := sig.(*dns.RRSIG)
 			ret, err := client.verifyRRSet(sig, rrs)
 			if err == nil {
-				ret = append(ret, proofs.SignedSet{sig, rrs})
+				ret = append(ret, proofs.SignedSet{sig, rrs, name})
 				return ret, nil
 			}
 			log.Warn("Failed to verify RRSET", "class", dns.ClassToString[qclass], "type", dns.TypeToString[qtype], "name", name, "signername", sig.SignerName, "algorithm", dns.AlgorithmToString[sig.Algorithm], "keytag", sig.KeyTag, "err", err)
@@ -285,7 +285,7 @@ func main() {
 	conf, err := dns.ClientConfigFromFile("/etc/resolv.conf")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		os.Exit(1)
 	}
 	nameserver := net.JoinHostPort(conf.Servers[0], "53")
 
@@ -293,7 +293,7 @@ func main() {
 	sets, err := client.QueryWithProof(qtype, qclass, name)
 	if err != nil {
 		log.Crit("Error resolving", "name", name, "err", err)
-		return
+		os.Exit(1)
 	}
 
 	if *print {
@@ -309,7 +309,7 @@ func main() {
 				log.Crit("Error packing RRSet", "err", err)
 				os.Exit(1)
 			}
-			fmt.Printf("[\"%x\", \"%x\"],\n", data, sig)
+			fmt.Printf("[\"%s\", \"%x\", \"%x\"],\n", proof.Name, data, sig)
 		}
 	} else {
 		conn, err := ethclient.Dial(*rpc)

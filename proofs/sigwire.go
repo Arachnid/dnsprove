@@ -19,6 +19,7 @@ import (
 type SignedSet struct {
 	Sig *dns.RRSIG
 	Rrs []dns.RR
+    Name string
 }
 
 type wireSlice [][]byte
