@@ -1,6 +1,9 @@
 contract DNSSEC {
-  event RRSetUpdated(bytes indexed nameHash, bytes name);
+    event RRSetUpdated(bytes name, bytes rrset);
 
-  function rrset(uint16 class, uint16 dnstype, bytes name) public constant returns(uint32 inception, uint64 inserted, bytes rrs);
-  function submitRRSet(uint16 class, bytes name, bytes input, bytes sig) public;
+    bytes public anchors;
+
+    function rrdata(uint16 dnstype, bytes name) public constant returns(uint32 inception, uint64 inserted, bytes20 hash);
+    function submitRRSet(bytes name, bytes input, bytes sig, bytes proof) public;
+    function deleteRRSet(uint16 deletetype, bytes deletename, bytes nsecname, bytes proof) public;
 }

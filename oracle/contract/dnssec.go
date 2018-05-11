@@ -15,7 +15,7 @@ import (
 )
 
 // DNSSECABI is the input ABI used to generate the binding from.
-const DNSSECABI = "[{\"constant\":false,\"inputs\":[{\"name\":\"class\",\"type\":\"uint16\"},{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"input\",\"type\":\"bytes\"},{\"name\":\"sig\",\"type\":\"bytes\"}],\"name\":\"submitRRSet\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"class\",\"type\":\"uint16\"},{\"name\":\"dnstype\",\"type\":\"uint16\"},{\"name\":\"name\",\"type\":\"bytes\"}],\"name\":\"rrset\",\"outputs\":[{\"name\":\"inception\",\"type\":\"uint32\"},{\"name\":\"inserted\",\"type\":\"uint64\"},{\"name\":\"rrs\",\"type\":\"bytes\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"name\":\"nameHash\",\"type\":\"bytes\"},{\"indexed\":false,\"name\":\"name\",\"type\":\"bytes\"}],\"name\":\"RRSetUpdated\",\"type\":\"event\"}]"
+const DNSSECABI = "[{\"constant\":true,\"inputs\":[{\"name\":\"dnstype\",\"type\":\"uint16\"},{\"name\":\"name\",\"type\":\"bytes\"}],\"name\":\"rrdata\",\"outputs\":[{\"name\":\"inception\",\"type\":\"uint32\"},{\"name\":\"inserted\",\"type\":\"uint64\"},{\"name\":\"hash\",\"type\":\"bytes20\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[],\"name\":\"anchors\",\"outputs\":[{\"name\":\"\",\"type\":\"bytes\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"input\",\"type\":\"bytes\"},{\"name\":\"sig\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"submitRRSet\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"deletetype\",\"type\":\"uint16\"},{\"name\":\"deletename\",\"type\":\"bytes\"},{\"name\":\"nsecname\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"deleteRRSet\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"name\":\"name\",\"type\":\"bytes\"},{\"indexed\":false,\"name\":\"rrset\",\"type\":\"bytes\"}],\"name\":\"RRSetUpdated\",\"type\":\"event\"}]"
 
 // DNSSECBin is the compiled bytecode used for deploying new contracts.
 const DNSSECBin = `0x`
@@ -175,65 +175,112 @@ func (_DNSSEC *DNSSECTransactorRaw) Transact(opts *bind.TransactOpts, method str
 	return _DNSSEC.Contract.contract.Transact(opts, method, params...)
 }
 
-// Rrset is a free data retrieval call binding the contract method 0x5f2b77ce.
+// Anchors is a free data retrieval call binding the contract method 0x98d35f20.
 //
-// Solidity: function rrset(class uint16, dnstype uint16, name bytes) constant returns(inception uint32, inserted uint64, rrs bytes)
-func (_DNSSEC *DNSSECCaller) Rrset(opts *bind.CallOpts, class uint16, dnstype uint16, name []byte) (struct {
+// Solidity: function anchors() constant returns(bytes)
+func (_DNSSEC *DNSSECCaller) Anchors(opts *bind.CallOpts) ([]byte, error) {
+	var (
+		ret0 = new([]byte)
+	)
+	out := ret0
+	err := _DNSSEC.contract.Call(opts, out, "anchors")
+	return *ret0, err
+}
+
+// Anchors is a free data retrieval call binding the contract method 0x98d35f20.
+//
+// Solidity: function anchors() constant returns(bytes)
+func (_DNSSEC *DNSSECSession) Anchors() ([]byte, error) {
+	return _DNSSEC.Contract.Anchors(&_DNSSEC.CallOpts)
+}
+
+// Anchors is a free data retrieval call binding the contract method 0x98d35f20.
+//
+// Solidity: function anchors() constant returns(bytes)
+func (_DNSSEC *DNSSECCallerSession) Anchors() ([]byte, error) {
+	return _DNSSEC.Contract.Anchors(&_DNSSEC.CallOpts)
+}
+
+// Rrdata is a free data retrieval call binding the contract method 0x087991bc.
+//
+// Solidity: function rrdata(dnstype uint16, name bytes) constant returns(inception uint32, inserted uint64, hash bytes20)
+func (_DNSSEC *DNSSECCaller) Rrdata(opts *bind.CallOpts, dnstype uint16, name []byte) (struct {
 	Inception uint32
 	Inserted  uint64
-	Rrs       []byte
+	Hash      [20]byte
 }, error) {
 	ret := new(struct {
 		Inception uint32
 		Inserted  uint64
-		Rrs       []byte
+		Hash      [20]byte
 	})
 	out := ret
-	err := _DNSSEC.contract.Call(opts, out, "rrset", class, dnstype, name)
+	err := _DNSSEC.contract.Call(opts, out, "rrdata", dnstype, name)
 	return *ret, err
 }
 
-// Rrset is a free data retrieval call binding the contract method 0x5f2b77ce.
+// Rrdata is a free data retrieval call binding the contract method 0x087991bc.
 //
-// Solidity: function rrset(class uint16, dnstype uint16, name bytes) constant returns(inception uint32, inserted uint64, rrs bytes)
-func (_DNSSEC *DNSSECSession) Rrset(class uint16, dnstype uint16, name []byte) (struct {
+// Solidity: function rrdata(dnstype uint16, name bytes) constant returns(inception uint32, inserted uint64, hash bytes20)
+func (_DNSSEC *DNSSECSession) Rrdata(dnstype uint16, name []byte) (struct {
 	Inception uint32
 	Inserted  uint64
-	Rrs       []byte
+	Hash      [20]byte
 }, error) {
-	return _DNSSEC.Contract.Rrset(&_DNSSEC.CallOpts, class, dnstype, name)
+	return _DNSSEC.Contract.Rrdata(&_DNSSEC.CallOpts, dnstype, name)
 }
 
-// Rrset is a free data retrieval call binding the contract method 0x5f2b77ce.
+// Rrdata is a free data retrieval call binding the contract method 0x087991bc.
 //
-// Solidity: function rrset(class uint16, dnstype uint16, name bytes) constant returns(inception uint32, inserted uint64, rrs bytes)
-func (_DNSSEC *DNSSECCallerSession) Rrset(class uint16, dnstype uint16, name []byte) (struct {
+// Solidity: function rrdata(dnstype uint16, name bytes) constant returns(inception uint32, inserted uint64, hash bytes20)
+func (_DNSSEC *DNSSECCallerSession) Rrdata(dnstype uint16, name []byte) (struct {
 	Inception uint32
 	Inserted  uint64
-	Rrs       []byte
+	Hash      [20]byte
 }, error) {
-	return _DNSSEC.Contract.Rrset(&_DNSSEC.CallOpts, class, dnstype, name)
+	return _DNSSEC.Contract.Rrdata(&_DNSSEC.CallOpts, dnstype, name)
 }
 
-// SubmitRRSet is a paid mutator transaction binding the contract method 0x11267632.
+// DeleteRRSet is a paid mutator transaction binding the contract method 0xb339b13b.
 //
-// Solidity: function submitRRSet(class uint16, name bytes, input bytes, sig bytes) returns()
-func (_DNSSEC *DNSSECTransactor) SubmitRRSet(opts *bind.TransactOpts, class uint16, name []byte, input []byte, sig []byte) (*types.Transaction, error) {
-	return _DNSSEC.contract.Transact(opts, "submitRRSet", class, name, input, sig)
+// Solidity: function deleteRRSet(deletetype uint16, deletename bytes, nsecname bytes, proof bytes) returns()
+func (_DNSSEC *DNSSECTransactor) DeleteRRSet(opts *bind.TransactOpts, deletetype uint16, deletename []byte, nsecname []byte, proof []byte) (*types.Transaction, error) {
+	return _DNSSEC.contract.Transact(opts, "deleteRRSet", deletetype, deletename, nsecname, proof)
 }
 
-// SubmitRRSet is a paid mutator transaction binding the contract method 0x11267632.
+// DeleteRRSet is a paid mutator transaction binding the contract method 0xb339b13b.
 //
-// Solidity: function submitRRSet(class uint16, name bytes, input bytes, sig bytes) returns()
-func (_DNSSEC *DNSSECSession) SubmitRRSet(class uint16, name []byte, input []byte, sig []byte) (*types.Transaction, error) {
-	return _DNSSEC.Contract.SubmitRRSet(&_DNSSEC.TransactOpts, class, name, input, sig)
+// Solidity: function deleteRRSet(deletetype uint16, deletename bytes, nsecname bytes, proof bytes) returns()
+func (_DNSSEC *DNSSECSession) DeleteRRSet(deletetype uint16, deletename []byte, nsecname []byte, proof []byte) (*types.Transaction, error) {
+	return _DNSSEC.Contract.DeleteRRSet(&_DNSSEC.TransactOpts, deletetype, deletename, nsecname, proof)
 }
 
-// SubmitRRSet is a paid mutator transaction binding the contract method 0x11267632.
+// DeleteRRSet is a paid mutator transaction binding the contract method 0xb339b13b.
 //
-// Solidity: function submitRRSet(class uint16, name bytes, input bytes, sig bytes) returns()
-func (_DNSSEC *DNSSECTransactorSession) SubmitRRSet(class uint16, name []byte, input []byte, sig []byte) (*types.Transaction, error) {
-	return _DNSSEC.Contract.SubmitRRSet(&_DNSSEC.TransactOpts, class, name, input, sig)
+// Solidity: function deleteRRSet(deletetype uint16, deletename bytes, nsecname bytes, proof bytes) returns()
+func (_DNSSEC *DNSSECTransactorSession) DeleteRRSet(deletetype uint16, deletename []byte, nsecname []byte, proof []byte) (*types.Transaction, error) {
+	return _DNSSEC.Contract.DeleteRRSet(&_DNSSEC.TransactOpts, deletetype, deletename, nsecname, proof)
+}
+
+// SubmitRRSet is a paid mutator transaction binding the contract method 0xb248453f.
+//
+// Solidity: function submitRRSet(name bytes, input bytes, sig bytes, proof bytes) returns()
+func (_DNSSEC *DNSSECTransactor) SubmitRRSet(opts *bind.TransactOpts, name []byte, input []byte, sig []byte, proof []byte) (*types.Transaction, error) {
+	return _DNSSEC.contract.Transact(opts, "submitRRSet", name, input, sig, proof)
+}
+
+// SubmitRRSet is a paid mutator transaction binding the contract method 0xb248453f.
+//
+// Solidity: function submitRRSet(name bytes, input bytes, sig bytes, proof bytes) returns()
+func (_DNSSEC *DNSSECSession) SubmitRRSet(name []byte, input []byte, sig []byte, proof []byte) (*types.Transaction, error) {
+	return _DNSSEC.Contract.SubmitRRSet(&_DNSSEC.TransactOpts, name, input, sig, proof)
+}
+
+// SubmitRRSet is a paid mutator transaction binding the contract method 0xb248453f.
+//
+// Solidity: function submitRRSet(name bytes, input bytes, sig bytes, proof bytes) returns()
+func (_DNSSEC *DNSSECTransactorSession) SubmitRRSet(name []byte, input []byte, sig []byte, proof []byte) (*types.Transaction, error) {
+	return _DNSSEC.Contract.SubmitRRSet(&_DNSSEC.TransactOpts, name, input, sig, proof)
 }
 
 // DNSSECRRSetUpdatedIterator is returned from FilterRRSetUpdated and is used to iterate over the raw logs and unpacked data for RRSetUpdated events raised by the DNSSEC contract.
@@ -305,22 +352,17 @@ func (it *DNSSECRRSetUpdatedIterator) Close() error {
 
 // DNSSECRRSetUpdated represents a RRSetUpdated event raised by the DNSSEC contract.
 type DNSSECRRSetUpdated struct {
-	NameHash common.Hash
-	Name     []byte
-	Raw      types.Log // Blockchain specific contextual infos
+	Name  []byte
+	Rrset []byte
+	Raw   types.Log // Blockchain specific contextual infos
 }
 
 // FilterRRSetUpdated is a free log retrieval operation binding the contract event 0x55ced933cdd5a34dd03eb5d4bef19ec6ebb251dcd7a988eee0c1b9a13baaa88b.
 //
-// Solidity: e RRSetUpdated(nameHash indexed bytes, name bytes)
-func (_DNSSEC *DNSSECFilterer) FilterRRSetUpdated(opts *bind.FilterOpts, nameHash [][]byte) (*DNSSECRRSetUpdatedIterator, error) {
+// Solidity: e RRSetUpdated(name bytes, rrset bytes)
+func (_DNSSEC *DNSSECFilterer) FilterRRSetUpdated(opts *bind.FilterOpts) (*DNSSECRRSetUpdatedIterator, error) {
 
-	var nameHashRule []interface{}
-	for _, nameHashItem := range nameHash {
-		nameHashRule = append(nameHashRule, nameHashItem)
-	}
-
-	logs, sub, err := _DNSSEC.contract.FilterLogs(opts, "RRSetUpdated", nameHashRule)
+	logs, sub, err := _DNSSEC.contract.FilterLogs(opts, "RRSetUpdated")
 	if err != nil {
 		return nil, err
 	}
@@ -329,15 +371,10 @@ func (_DNSSEC *DNSSECFilterer) FilterRRSetUpdated(opts *bind.FilterOpts, nameHas
 
 // WatchRRSetUpdated is a free log subscription operation binding the contract event 0x55ced933cdd5a34dd03eb5d4bef19ec6ebb251dcd7a988eee0c1b9a13baaa88b.
 //
-// Solidity: e RRSetUpdated(nameHash indexed bytes, name bytes)
-func (_DNSSEC *DNSSECFilterer) WatchRRSetUpdated(opts *bind.WatchOpts, sink chan<- *DNSSECRRSetUpdated, nameHash [][]byte) (event.Subscription, error) {
+// Solidity: e RRSetUpdated(name bytes, rrset bytes)
+func (_DNSSEC *DNSSECFilterer) WatchRRSetUpdated(opts *bind.WatchOpts, sink chan<- *DNSSECRRSetUpdated) (event.Subscription, error) {
 
-	var nameHashRule []interface{}
-	for _, nameHashItem := range nameHash {
-		nameHashRule = append(nameHashRule, nameHashItem)
-	}
-
-	logs, sub, err := _DNSSEC.contract.WatchLogs(opts, "RRSetUpdated", nameHashRule)
+	logs, sub, err := _DNSSEC.contract.WatchLogs(opts, "RRSetUpdated")
 	if err != nil {
 		return nil, err
 	}

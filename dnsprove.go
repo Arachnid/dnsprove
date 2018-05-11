@@ -321,9 +321,14 @@ func main() {
 					fmt.Printf("// %s\n", line)
 				}
 			}
-			data, sig, err := proof.Pack()
+			data, err := proof.Pack()
 			if err != nil {
 				log.Crit("Error packing RRSet", "err", err)
+				os.Exit(1)
+			}
+			sig, err := proof.PackSignature()
+			if err != nil {
+				log.Crit("Error packing RRSet signature", "err", err)
 				os.Exit(1)
 			}
 			fmt.Printf("[\"%s\", \"%x\", \"%x\"],\n", proof.Name, data, sig)
@@ -341,19 +346,19 @@ func main() {
 			os.Exit(1)
 		}
 
-		sets, err = o.FilterProofs(sets)
+		known, err := o.FindFirstUnknownProof(sets)
 		if err != nil {
-			log.Crit("Error filtering proofs", "err", err)
+			log.Crit("Error checking proofs against oracle", "err", err)
 			os.Exit(1)
 		}
 
-		if len(sets) == 0 {
+		if known == len(sets) {
 			fmt.Printf("Nothing to do; exiting.\n")
 			os.Exit(0)
 		}
 
 		if !*yes {
-			if !prompt.Confirm("Send %d transactions to prove %s %s onchain?", len(sets), dns.TypeToString[qtype], name) {
+			if !prompt.Confirm("Send %d transactions to prove %s %s onchain?", len(sets) - known, dns.TypeToString[qtype], name) {
 				fmt.Printf("Exiting at user request.\n")
 				return
 			}
@@ -373,7 +378,7 @@ func main() {
 		}
 		auth.GasPrice = big.NewInt(int64(*gasprice * 1000000000))
 
-		txs, err := o.SendProofs(auth, sets)
+		txs, err := o.SendProofs(auth, sets, known)
 		if err != nil {
 			log.Crit("Error sending proofs", "err", err)
 			os.Exit(1)

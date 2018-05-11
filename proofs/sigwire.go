@@ -32,27 +32,27 @@ func (p wireSlice) Less(i, j int) bool {
 	return bytes.Compare(p[i][ioff+10:], p[j][joff+10:]) < 0
 }
 
-func (ss *SignedSet) Pack() (buf []byte, sig []byte, err error) {
-  sigwire := make([]byte, dns.Len(ss.Sig))
-  off, err := packSigWire(ss.Sig, sigwire)
-  if err != nil {
-    return nil, nil, err
-  }
-  sigwire = sigwire[:off]
+func (ss *SignedSet) PackRRSet() (buf []byte, err error) {
+    return rawSignatureData(ss.Rrs, ss.Sig)
+}
 
-  rrdata, err := rawSignatureData(ss.Rrs, ss.Sig)
-  if err != nil {
-    return nil, nil, err
-  }
+func (ss *SignedSet) Pack() (buf []byte, err error) {
+    sigwire := make([]byte, dns.Len(ss.Sig))
+    off, err := packSigWire(ss.Sig, sigwire)
+    if err != nil {
+        return nil, err
+    }
 
-  sigwire = append(sigwire, rrdata...)
+    rrdata, err := ss.PackRRSet()
+    if err != nil {
+        return nil, err
+    }
 
-  sig, err = base64.StdEncoding.DecodeString(ss.Sig.Signature)
-  if err != nil {
-    return nil, nil, err
-  }
+    return append(sigwire[:off], rrdata...), nil
+}
 
-  return sigwire, sig, nil
+func (ss *SignedSet) PackSignature() (sig []byte, err error) {
+    return base64.StdEncoding.DecodeString(ss.Sig.Signature)
 }
 
 // Return the raw signature data.
