@@ -109,11 +109,6 @@ func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known
         if i >= known {
             header := set.Rrs[0].Header()
 
-            name, err := packName(header.Name)
-            if err != nil {
-                return nil, err
-            }
-
             data, err := set.Pack()
             if err != nil {
                 return nil, err
@@ -125,7 +120,7 @@ func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known
             }
 
             log.Info("Submitting transaction", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
-            tx, err := o.o.SubmitRRSet(opts, name, data, sig, proof)
+            tx, err := o.o.SubmitRRSet(opts, data, sig, proof)
             if err != nil {
                 return nil, err
             }
@@ -150,18 +145,13 @@ func (o *Oracle) DeleteRRSet(opts *bind.TransactOpts, dnsType uint16, name strin
         return nil, err
     }
 
-    packedNsecName, err := packName(proof.Rrs[0].Header().Name)
-    if err != nil {
-        return nil, err
-    }
-
     packedProof, err := proof.PackRRSet()
     if err != nil {
         return nil, err
     }
 
     opts.GasLimit = 50000
-    tx, err := o.o.DeleteRRSet(opts, dnsType, packedName, packedNsecName, packedProof)
+    tx, err := o.o.DeleteRRSet(opts, dnsType, packedName, packedProof)
     opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
     opts.GasLimit = 0
 
