@@ -21,6 +21,7 @@ import (
 	"github.com/arachnid/dnsprove/proofs"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/miekg/dns"
 	"github.com/ethereum/go-ethereum/ethclient"
 	log "github.com/inconshreveable/log15"
@@ -178,11 +179,11 @@ func (client *Client) QueryWithProof(qtype, qclass uint16, name string) ([]proof
 			return nil, false, fmt.Errorf("No signed RRSETs available for %s %s", dns.TypeToString[qtype], name)
 		}
 	} else {
-		log.Info("RR does not exist; looking for NSEC", "qtype", dns.TypeToString[qtype], "name", name)
 		rrs = getNSECRRs(r.Ns, name)
 		if len(rrs) == 0 {
 			return nil, false, fmt.Errorf("RR does not exist and no NSEC records returned for %s %s", dns.TypeToString[qtype], name)
 		}
+		log.Info("RR does not exist; got NSEC", "qtype", dns.TypeToString[qtype], "name", name)
 		sigs = findSignatures(r.Ns, rrs[0].Header().Name)
 		if len(sigs) == 0 {
 			return nil, false, fmt.Errorf("RR does not exist and no signatures provided for NSEC records for %s %s", dns.TypeToString[qtype], name)
@@ -191,9 +192,13 @@ func (client *Client) QueryWithProof(qtype, qclass uint16, name string) ([]proof
 
 	for _, sig := range sigs {
 		sig := sig.(*dns.RRSIG)
+		if sig.TypeCovered != rrs[0].Header().Rrtype {
+			continue
+		}
 		ret, err := client.verifyRRSet(sig, rrs)
 		if err == nil {
-			ret = append(ret, proofs.SignedSet{sig, rrs, name})
+			result := proofs.SignedSet{sig, rrs, name}
+			ret = append(ret, result)
 			return ret, found, nil
 		}
 		log.Warn("Failed to verify RRSET", "type", dns.TypeToString[rrs[0].Header().Rrtype], "name", name, "signername", sig.SignerName, "algorithm", dns.AlgorithmToString[sig.Algorithm], "keytag", sig.KeyTag, "err", err)
@@ -233,10 +238,10 @@ func (client *Client) verifyRRSet(sig *dns.RRSIG, rrs []dns.RR) ([]proofs.Signed
 			continue
 		}
 		if err := sig.Verify(key, rrs); err != nil {
-			log.Error("Could not verify signature", "type", dns.TypeToString[rrs[0].Header().Rrtype], "signame", sig.Header().Name, "keyname", key.Header().Name, "algorithm", dns.AlgorithmToString[key.Algorithm], "keytag", key.KeyTag(), "err", err)
+			log.Error("Could not verify signature", "type", dns.TypeToString[rrs[0].Header().Rrtype], "signame", sig.Header().Name, "keyname", key.Header().Name, "algorithm", dns.AlgorithmToString[key.Algorithm], "keytag", key.KeyTag(), "key", key, "rrs", rrs, "sig", sig, "err", err)
 			continue
 		}
-		if sig.Header().Name == sig.SignerName {
+		if sig.Header().Name == sig.SignerName && rrs[0].Header().Rrtype == dns.TypeDNSKEY {
 			// RRSet is self-signed; look for DS records in parent zones to verify
 			sets, err = client.verifyWithDS(key)
 			if err != nil {
@@ -433,20 +438,20 @@ func main() {
 			os.Exit(1)
 		}
 		if hash == [20]byte{} {
-			fmt.Printf("Nothing to do; exiting\n")
+			fmt.Printf("RRSet not found in oracle. Nothing to do; exiting\n")
 			os.Exit(0)
 		}
-	}
-
-	// If the RRset already matches, there's nothing to do
-	matches, err := o.RecordMatches(sets[len(sets) - 1])
-	if err != nil {
-		log.Crit("Error checking for record", "err", err)
-		os.Exit(1)
-	}
-	if matches && found {
-		fmt.Printf("Nothing to do; exiting.\n")
-		os.Exit(0)
+	} else {
+		// If the RRset already matches, there's nothing to do
+		matches, err := o.RecordMatches(sets[len(sets) - 1])
+		if err != nil {
+			log.Crit("Error checking for record", "err", err)
+			os.Exit(1)
+		}
+		if matches && found {
+			fmt.Printf("Nothing to do; exiting.\n")
+			os.Exit(0)
+		}
 	}
 
 	known, err := o.FindFirstUnknownProof(sets, found)
@@ -456,11 +461,7 @@ func main() {
 	}
 
 	if !*yes {
-		txcount := len(sets) - known
-		if !found {
-			txcount += 1
-		}
-		if !prompt.Confirm("Send %d transactions to prove %s %s onchain?", txcount, dns.TypeToString[sets[len(sets) - 1].Rrs[0].Header().Rrtype], name) {
+		if !prompt.Confirm("Send %d transactions to prove %s %s onchain?", len(sets) - known, dns.TypeToString[sets[len(sets) - 1].Rrs[0].Header().Rrtype], name) {
 			fmt.Printf("Exiting at user request.\n")
 			return
 		}
@@ -487,14 +488,23 @@ func main() {
     }
 	auth.Nonce = big.NewInt(int64(nonce))
 
-	txs, err := o.SendProofs(auth, sets, known, found)
-	if err != nil {
-		log.Crit("Error sending proofs", "err", err)
-		os.Exit(1)
-	}
+	var txs []*types.Transaction
+	if found {
+		txs, _, err = o.SendProofs(auth, sets, known, found)
+		if err != nil {
+			log.Crit("Error sending proofs", "err", err)
+			os.Exit(1)
+		}
+	} else {
+		nsec := sets[len(sets) - 1]
+		var proof []byte
+		txs, proof, err = o.SendProofs(auth, sets[:len(sets) - 1], known, found)
+		if err != nil {
+			log.Crit("Error sending proofs", "err", err)
+			os.Exit(1)
+		}
 
-	if !found {
-		deletetx, err := o.DeleteRRSet(auth, qtype, name, sets[len(sets) - 1])
+		deletetx, err := o.DeleteRRSet(auth, qtype, name, nsec, proof)
 		if err != nil {
 			log.Crit("Error deleting RRSet", "err", err)
 			os.Exit(1)

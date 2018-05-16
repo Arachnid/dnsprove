@@ -96,13 +96,13 @@ func (o *Oracle) RecordMatches(set proofs.SignedSet) (bool, error) {
     return true, nil
 }
 
-func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known int, found bool) ([]*types.Transaction, error) {
+func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known int, found bool) ([]*types.Transaction, []byte, error) {
     ret := make([]*types.Transaction, 0, known)
 
     // Get the trust anchors as initial proof
     proof, err := o.o.Anchors(nil)
     if err != nil {
-        return nil, err
+        return nil, nil, err
     }
 
     for i, set := range p {
@@ -111,18 +111,18 @@ func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known
 
             data, err := set.Pack()
             if err != nil {
-                return nil, err
+                return nil, nil, err
             }
 
             sig, err := set.PackSignature()
             if err != nil {
-                return nil, err
+                return nil, nil, err
             }
 
             log.Info("Submitting transaction", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
             tx, err := o.o.SubmitRRSet(opts, data, sig, proof)
             if err != nil {
-                return nil, err
+                return nil, nil, err
             }
             ret = append(ret, tx)
             opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
@@ -130,28 +130,33 @@ func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known
 
         proof, err = set.PackRRSet()
         if err != nil {
-            return nil, err
+            return nil, nil, err
         }
     }
 
 
-    return ret, nil
+    return ret, proof, nil
 }
 
-func (o *Oracle) DeleteRRSet(opts *bind.TransactOpts, dnsType uint16, name string, proof proofs.SignedSet) (*types.Transaction, error) {
-    log.Info("Deleting RRSet", "type", dns.TypeToString[dnsType], "name", name, "proof", proof.Rrs)
+func (o *Oracle) DeleteRRSet(opts *bind.TransactOpts, dnsType uint16, name string, nsec proofs.SignedSet, proof []byte) (*types.Transaction, error) {
+    log.Info("Deleting RRSet", "type", dns.TypeToString[dnsType], "name", name, "nsec", nsec.Rrs)
     packedName, err := packName(name)
     if err != nil {
         return nil, err
     }
 
-    packedProof, err := proof.PackRRSet()
+    data, err := nsec.Pack()
     if err != nil {
         return nil, err
     }
 
-    opts.GasLimit = 50000
-    tx, err := o.o.DeleteRRSet(opts, dnsType, packedName, packedProof)
+    sig, err := nsec.PackSignature()
+    if err != nil {
+        return nil, err
+    }
+
+    opts.GasLimit = 150000
+    tx, err := o.o.DeleteRRSet(opts, dnsType, packedName, data, sig, proof)
     opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
     opts.GasLimit = 0
 
