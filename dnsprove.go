@@ -42,13 +42,6 @@ var (
 	trustAnchors = []*dns.DS{
 		&dns.DS{
 			Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeDS, Class: dns.ClassINET},
-			KeyTag: 19036,
-			Algorithm: 8,
-			DigestType: 2,
-			Digest: "49AAC11D7B6F6446702E54A1607371607A1A41855200FD2CE1CDDE32F24E8FB5",
-		},
-		&dns.DS{
-			Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeDS, Class: dns.ClassINET},
 			KeyTag: 20326,
 			Algorithm: 8,
 			DigestType: 2,

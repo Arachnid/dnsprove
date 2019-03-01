@@ -15,10 +15,10 @@ import (
     "github.com/ethereum/go-ethereum/common"
     "github.com/ethereum/go-ethereum/common/hexutil"
     "github.com/ethereum/go-ethereum/core/types"
-    "github.com/ethereum/go-ethereum/crypto/sha3"
     "github.com/arachnid/dnsprove/oracle/contract"
     log "github.com/inconshreveable/log15"
     "github.com/arachnid/dnsprove/proofs"
+    "golang.org/x/crypto/sha3"
 )
 
 type Oracle struct {
@@ -78,7 +78,7 @@ func (o *Oracle) RecordMatches(set proofs.SignedSet) (bool, error) {
     if err != nil {
         return false, err
     }
-    h := sha3.NewKeccak256()
+    h := sha3.NewLegacyKeccak256()
     h.Write(rrset)
     ourhash := h.Sum(nil)
 
