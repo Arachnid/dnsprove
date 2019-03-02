@@ -120,6 +120,7 @@ func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known
             }
 
             log.Info("Submitting transaction", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
+            log.Debug("Signature info", "data", hexutil.Encode(data), "sig", hexutil.Encode(sig), "proof", hexutil.Encode(proof))
             tx, err := o.o.SubmitRRSet(opts, data, sig, proof)
             if err != nil {
                 return nil, nil, err

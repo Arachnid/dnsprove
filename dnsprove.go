@@ -258,6 +258,11 @@ func (client *Client) verifyWithDS(key *dns.DNSKEY) ([]proofs.SignedSet, error) 
 		}
 	}
 
+	// If it's a root DS, and we don't have it in our roots, no point querying for it.
+	if key.Header().Name == "." {
+		return nil, fmt.Errorf("DS . with key tag %d not found", keytag)
+	}
+
 	// Look up the DS record
 	sets, found, err := client.QueryWithProof(dns.TypeDS, key.Header().Class, key.Header().Name)
 	if err != nil {
