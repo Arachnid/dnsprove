@@ -7,6 +7,7 @@ package oracle
 
 import (
     "bytes"
+    "encoding/binary"
     "fmt"
     "math/big"
 
@@ -96,47 +97,70 @@ func (o *Oracle) RecordMatches(set proofs.SignedSet) (bool, error) {
     return true, nil
 }
 
-func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known int, found bool) ([]*types.Transaction, []byte, error) {
-    ret := make([]*types.Transaction, 0, known)
+func (o *Oracle) SerializeProofs(p []proofs.SignedSet, known int) ([]byte, []byte, error) {
+  buf := new(bytes.Buffer)
 
-    // Get the trust anchors as initial proof
-    proof, err := o.o.Anchors(nil)
+  var proof []byte
+  if known == 0 {
+      // Get the trust anchors as initial proof
+      var err error
+      proof, err = o.o.Anchors(nil)
+      if err != nil {
+          return nil, nil, err
+      }
+  } else {
+    var err error
+    proof, err = p[known - 1].PackRRSet()
     if err != nil {
         return nil, nil, err
     }
+  }
 
-    for i, set := range p {
-        if i >= known {
-            header := set.Rrs[0].Header()
+  for i := known; i < len(p); i++ {
+      set := p[i]
+      header := set.Rrs[0].Header()
 
-            data, err := set.Pack()
-            if err != nil {
-                return nil, nil, err
-            }
+      data, err := set.Pack()
+      if err != nil {
+          return nil, nil, err
+      }
 
-            sig, err := set.PackSignature()
-            if err != nil {
-                return nil, nil, err
-            }
+      sig, err := set.PackSignature()
+      if err != nil {
+          return nil, nil, err
+      }
 
-            log.Info("Submitting transaction", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
-            log.Debug("Signature info", "data", hexutil.Encode(data), "sig", hexutil.Encode(sig), "proof", hexutil.Encode(proof))
-            tx, err := o.o.SubmitRRSet(opts, data, sig, proof)
-            if err != nil {
-                return nil, nil, err
-            }
-            ret = append(ret, tx)
-            opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
-        }
+      if err := binary.Write(buf, binary.BigEndian, uint16(len(data))); err != nil {
+        return nil, nil, err
+      }
+      if _, err := buf.Write(data); err != nil {
+        return nil, nil, err
+      }
+      if err := binary.Write(buf, binary.BigEndian, uint16(len(sig))); err != nil {
+        return nil, nil, err
+      }
+      if _, err := buf.Write(sig); err != nil {
+        return nil, nil, err
+      }
+      log.Info("Adding proof to transaction", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
+  }
+  return buf.Bytes(), proof, nil
+}
 
-        proof, err = set.PackRRSet()
-        if err != nil {
-            return nil, nil, err
-        }
+func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known int) (*types.Transaction, error) {
+    data, proof, err := o.SerializeProofs(p, known)
+    if err != nil {
+      return nil, err
     }
 
+    log.Info("Submitting transaction.", "proofs", len(p) - known)
+    log.Debug("Signature info", "data", hexutil.Encode(data))
+    tx, err := o.o.SubmitRRSets(opts, data, proof)
+    if err != nil {
+        return nil, err
+    }
 
-    return ret, proof, nil
+    return tx, nil
 }
 
 func (o *Oracle) DeleteRRSet(opts *bind.TransactOpts, dnsType uint16, name string, nsec proofs.SignedSet, proof []byte) (*types.Transaction, error) {

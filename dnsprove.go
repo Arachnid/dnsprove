@@ -459,7 +459,7 @@ func main() {
 	}
 
 	if !*yes {
-		if !prompt.Confirm("Send %d transactions to prove %s %s onchain?", len(sets) - known, dns.TypeToString[sets[len(sets) - 1].Rrs[0].Header().Rrtype], name) {
+		if !prompt.Confirm("Send a transaction to prove %s %s (%d proofs) onchain?", dns.TypeToString[sets[len(sets) - 1].Rrs[0].Header().Rrtype], name, len(sets) - known) {
 			fmt.Printf("Exiting at user request.\n")
 			return
 		}
@@ -488,18 +488,26 @@ func main() {
 
 	var txs []*types.Transaction
 	if found {
-		txs, _, err = o.SendProofs(auth, sets, known, found)
+		tx, err := o.SendProofs(auth, sets, known)
 		if err != nil {
 			log.Crit("Error sending proofs", "err", err)
 			os.Exit(1)
 		}
+		txs = append(txs, tx)
 	} else {
 		nsec := sets[len(sets) - 1]
 		var proof []byte
-		txs, proof, err = o.SendProofs(auth, sets[:len(sets) - 1], known, found)
+		tx, err := o.SendProofs(auth, sets[:len(sets) - 1], known)
 		if err != nil {
 			log.Crit("Error sending proofs", "err", err)
 			os.Exit(1)
+		}
+		txs = append(txs, tx)
+
+		proof, err = sets[len(sets) - 2].PackRRSet()
+		if err != nil {
+				log.Crit("Could not pack proof for SOA record", "err", err)
+				os.Exit(1)
 		}
 
 		deletetx, err := o.DeleteRRSet(auth, qtype, name, nsec, proof)
