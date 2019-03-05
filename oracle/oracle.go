@@ -1,34 +1,35 @@
-// Copyright 2017 Nick Johnson. All rights reserved.
+// Copyright 2019 Nick Johnson. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 package oracle
 
-//go:generate abigen --sol contract/dnssec.sol --pkg contract --out contract/dnssec.go
+//go:generate abigen --sol ../contracts/dnssec.sol --pkg contracts --out ../contracts/dnssec.go
 
 import (
     "bytes"
     "encoding/binary"
     "fmt"
     "math/big"
+    "time"
 
     "github.com/miekg/dns"
     "github.com/ethereum/go-ethereum/accounts/abi/bind"
     "github.com/ethereum/go-ethereum/common"
     "github.com/ethereum/go-ethereum/common/hexutil"
     "github.com/ethereum/go-ethereum/core/types"
-    "github.com/arachnid/dnsprove/oracle/contract"
+    "github.com/arachnid/dnsprove/contracts"
     log "github.com/inconshreveable/log15"
     "github.com/arachnid/dnsprove/proofs"
     "golang.org/x/crypto/sha3"
 )
 
 type Oracle struct {
-    o *contract.DNSSEC
+    o *contracts.DNSSEC
     backend bind.ContractBackend
 }
 
-func NewOracle(addr common.Address, backend bind.ContractBackend) (*Oracle, error) {
-    oracle, err := contract.NewDNSSEC(addr, backend)
+func New(addr common.Address, backend bind.ContractBackend) (*Oracle, error) {
+    oracle, err := contracts.NewDNSSEC(addr, backend)
     if err != nil {
         return nil, err
     }
@@ -39,7 +40,11 @@ func NewOracle(addr common.Address, backend bind.ContractBackend) (*Oracle, erro
     }, nil
 }
 
-func packName(name string) ([]byte, error) {
+func PackName(name string) ([]byte, error) {
+    if name[len(name) - 1] != '.' {
+      name = name + "."
+    }
+
     ret := make([]byte, len(name) + 1)
     pos, err := dns.PackDomainName(name, ret, 0, nil, false)
     if err != nil {
@@ -58,7 +63,7 @@ func (o *Oracle) FindFirstUnknownProof(p []proofs.SignedSet, found bool) (int, e
 }
 
 func (o *Oracle) Rrdata(rrtype uint16, name string) (uint32, uint64, [20]byte, error) {
-    packed, err := packName(name)
+    packed, err := PackName(name)
     if err != nil {
         return 0, 0, [20]byte{}, err
     }
@@ -70,7 +75,7 @@ func (o *Oracle) Rrdata(rrtype uint16, name string) (uint32, uint64, [20]byte, e
 func (o *Oracle) RecordMatches(set proofs.SignedSet) (bool, error) {
     header := set.Rrs[0].Header()
 
-    inception, _, hash, err := o.Rrdata(header.Rrtype, header.Name)
+    inception, inserted, hash, err := o.Rrdata(header.Rrtype, header.Name)
     if err != nil {
         return false, err
     }
@@ -86,7 +91,7 @@ func (o *Oracle) RecordMatches(set proofs.SignedSet) (bool, error) {
     if inception == 0 {
         log.Info("RRSET does not exist", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
         return false, nil
-    } else if inception <= set.Sig.Inception && !bytes.Equal(hash[:], ourhash[:20]) {
+    } else if inception <= set.Sig.Inception && (!bytes.Equal(hash[:], ourhash[:20]) || int64(inserted) + int64(header.Ttl) < time.Now().Unix()) {
         log.Info("RRSET exists but is out of date", "name", header.Name, "type", dns.TypeToString[header.Rrtype], "current", inception, "new", set.Sig.Inception, "oldhash", hexutil.Encode(hash[:]), "newhash", hexutil.Encode(ourhash[:20]))
         return false, nil
     } else if inception > set.Sig.Inception {
@@ -147,6 +152,10 @@ func (o *Oracle) SerializeProofs(p []proofs.SignedSet, known int) ([]byte, []byt
   return buf.Bytes(), proof, nil
 }
 
+func (o *Oracle) GetContract() *contracts.DNSSEC {
+  return o.o
+}
+
 func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known int) (*types.Transaction, error) {
     data, proof, err := o.SerializeProofs(p, known)
     if err != nil {
@@ -165,7 +174,7 @@ func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known
 
 func (o *Oracle) DeleteRRSet(opts *bind.TransactOpts, dnsType uint16, name string, nsec proofs.SignedSet, proof []byte) (*types.Transaction, error) {
     log.Info("Deleting RRSet", "type", dns.TypeToString[dnsType], "name", name, "nsec", nsec.Rrs)
-    packedName, err := packName(name)
+    packedName, err := PackName(name)
     if err != nil {
         return nil, err
     }

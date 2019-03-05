@@ -1,4 +1,4 @@
-// Copyright 2017 Nick Johnson. All rights reserved.
+// Copyright 2019 Nick Johnson. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -17,8 +17,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/arachnid/dnsprove/ens"
 	"github.com/arachnid/dnsprove/oracle"
 	"github.com/arachnid/dnsprove/proofs"
+	"github.com/arachnid/dnsprove/registrar"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -33,12 +35,23 @@ var (
 	hashes          = flag.String("hashes", "SHA256", "a comma-separated list of supported hash algorithms")
 	algorithms      = flag.String("algorithms", "RSASHA256", "a comma-separated list of supported digest algorithms")
 	verbosity       = flag.Int("verbosity", 3, "logging level verbosity (0-4)")
-	print           = flag.Bool("print", false, "don't upload to the contract, just print proof data")
 	rpc             = flag.String("rpc", "http://localhost:8545", "RPC path to Ethereum node")
-	address         = flag.String("address", "", "Contract address for DNSSEC oracle")
 	keyfile         = flag.String("keyfile", "", "Path to JSON keyfile")
-	gasprice        = flag.Float64("gasprice", 5.0, "Gas price, in gwei")
 	yes             = flag.Bool("yes", false, "Do not prompt before sending transactions")
+	gasprice        = flag.Float64("gasprice", 5.0, "Gas price, in gwei")
+
+	proveFlags			= flag.NewFlagSet("prove", flag.ExitOnError)
+	oracleAddress   = proveFlags.String("address", "", "Contract address for DNSSEC oracle")
+	print           = proveFlags.Bool("print", false, "don't upload to the contract, just print proof data")
+
+	claimFlags      = flag.NewFlagSet("claim", flag.ExitOnError)
+	registryAddress = claimFlags.String("address", "0x314159265dd8dbb310642f98f50c066173c1259b", "Contract address for ENS registry")
+
+	subcommands = map[string]func([]string) {
+		"prove": proveCommand,
+		"claim": claimCommand,
+	}
+
 	trustAnchors = []*dns.DS{
 		&dns.DS{
 			Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeDS, Class: dns.ClassINET},
@@ -354,42 +367,52 @@ func nsecCovers(owner, test, next string) bool {
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] qtype name\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] command\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-	if flag.NArg() != 2 {
+
+	if flag.NArg() == 0  {
 		flag.Usage()
 		return
 	}
 
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*verbosity), log.StreamHandler(os.Stderr, log.TerminalFormat())))
 
-	qtype, ok := dns.StringToType[flag.Arg(0)]
+	subcommand, ok := subcommands[flag.Arg(0)]
 	if !ok {
-		log.Crit("Unrecognised query type", "type", flag.Arg(0))
+		flag.Usage()
+		return
+	}
+
+	subcommand(flag.Args()[1:])
+}
+
+func proveCommand(args []string) {
+	proveFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] prove [prove options] qtype qname\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\nGeneral options:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nProve command options:\n")
+		proveFlags.PrintDefaults()
+	}
+	proveFlags.Parse(args)
+
+	if proveFlags.NArg() != 2 {
+		proveFlags.Usage()
+		return
+	}
+
+	qtype, ok := dns.StringToType[proveFlags.Arg(0)]
+	if !ok {
+		log.Crit("Unrecognised query type", "qtype", qtype)
 		os.Exit(1)
 	}
-	qclass := uint16(dns.ClassINET)
-	name := flag.Arg(1)
-	if !strings.HasSuffix(name, ".") {
-		name = name + "."
-	}
+	name := proveFlags.Arg(1)
 
-	hashmap := make(map[uint8]struct{})
-	for _, hashname := range strings.Split(*hashes, ",") {
-		hashmap[dns.StringToHash[hashname]] = struct{}{}
-	}
-
-	algmap := make(map[uint8]struct{})
-	for _, algname := range strings.Split(*algorithms, ",") {
-		algmap[dns.StringToAlgorithm[algname]] = struct{}{}
-	}
-
-	client := NewClient(*server, trustAnchors, algmap, hashmap)
-	sets, found, err := client.QueryWithProof(qtype, qclass, name)
+	sets, found, err := getProofs(qtype, name)
 	if err != nil {
-		log.Crit("Error resolving", "name", name, "err", err)
+		log.Crit("Error resolving", "qtype", qtype, "name", name, "err", err)
 		os.Exit(1)
 	}
 
@@ -422,7 +445,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	o, err := oracle.NewOracle(common.HexToAddress(*address), conn)
+	o, err := oracle.New(common.HexToAddress(*oracleAddress), conn)
 	if err != nil {
 		log.Crit("Error creating oracle", "err", err)
 		os.Exit(1)
@@ -465,26 +488,11 @@ func main() {
 		}
 	}
 
-	key, err := os.Open(*keyfile)
-	if err != nil {
-		log.Crit("Could not open keyfile", "err", err)
-		os.Exit(1)
-	}
-
-	pass := prompt.Password("Password")
-	auth, err := bind.NewTransactor(key, pass)
+	auth, err := makeTransactor(conn)
 	if err != nil {
 		log.Crit("Could not create transactor", "err", err)
 		os.Exit(1)
 	}
-	auth.GasPrice = big.NewInt(int64(*gasprice * 1000000000))
-
-	nonce, err := conn.PendingNonceAt(context.TODO(), auth.From)
-    if err != nil {
-		log.Crit("Could not fetch nonce", "err", err)
-		os.Exit(1)
-    }
-	auth.Nonce = big.NewInt(int64(nonce))
 
 	var txs []*types.Transaction
 	if found {
@@ -523,4 +531,142 @@ func main() {
 		txids = append(txids, tx.Hash().String())
 	}
 	log.Info("Transactions sent", "txids", txids)
+}
+
+func makeTransactor(conn *ethclient.Client) (*bind.TransactOpts, error) {
+	key, err := os.Open(*keyfile)
+	if err != nil {
+		log.Crit("Could not open keyfile", "err", err)
+		os.Exit(1)
+	}
+
+	pass := prompt.Password("Password")
+	auth, err := bind.NewTransactor(key, pass)
+	if err != nil {
+		return nil, err
+	}
+	auth.GasPrice = big.NewInt(int64(*gasprice * 1000000000))
+	if err = updateNonce(conn, auth); err != nil {
+		return nil, err
+	}
+	return auth, nil
+}
+
+func updateNonce(conn *ethclient.Client, auth *bind.TransactOpts) error {
+	nonce, err := conn.PendingNonceAt(context.TODO(), auth.From)
+  if err != nil {
+		return err
+  }
+	auth.Nonce = big.NewInt(int64(nonce))
+	return nil
+}
+
+func getProofs(qtype uint16, name string) ([]proofs.SignedSet, bool, error) {
+		qclass := uint16(dns.ClassINET)
+		if !strings.HasSuffix(name, ".") {
+			name = name + "."
+		}
+
+		hashmap := make(map[uint8]struct{})
+		for _, hashname := range strings.Split(*hashes, ",") {
+			hashmap[dns.StringToHash[hashname]] = struct{}{}
+		}
+
+		algmap := make(map[uint8]struct{})
+		for _, algname := range strings.Split(*algorithms, ",") {
+			algmap[dns.StringToAlgorithm[algname]] = struct{}{}
+		}
+
+		client := NewClient(*server, trustAnchors, algmap, hashmap)
+		return client.QueryWithProof(qtype, qclass, name)
+}
+
+func claimCommand(args []string) {
+	claimFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] claim [claim options] name\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\nGeneral options:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nClaim command options:\n")
+		claimFlags.PrintDefaults()
+	}
+	claimFlags.Parse(args)
+
+	if claimFlags.NArg() != 1 {
+		claimFlags.Usage()
+		return
+	}
+
+	conn, err := ethclient.Dial(*rpc)
+	if err != nil {
+		log.Crit("Error connecting to Ethereum node", "err", err)
+		os.Exit(1)
+	}
+
+	name := claimFlags.Arg(0)
+
+	registry, err := ens.New(common.HexToAddress(*registryAddress), conn)
+	if err != nil {
+		log.Crit("Error instantiating registry", "err", err)
+		os.Exit(1)
+	}
+
+	parentName := ""
+	if nameparts := strings.SplitN(name, ".", 2); len(nameparts) > 1 {
+		parentName = nameparts[1]
+	}
+
+	addr, err := registry.Owner(parentName)
+	if err != nil {
+		log.Crit("Could not get ENS owner", "name", parentName, "err", err)
+		os.Exit(1)
+	}
+
+	if addr == (common.Address{}) {
+		log.Crit("Name does not exist in ENS", "name", parentName)
+		os.Exit(1)
+	}
+
+	registrar, err := registrar.New(addr, conn)
+	if err != nil {
+		log.Crit("Could not instantiate DNSSEC registrar", "name", parentName, "err", err)
+		os.Exit(1)
+	}
+
+	if err := claimWithRegistrar(conn, name, registrar); err != nil {
+		log.Crit("Error claiming name with registrar", "name", name, "error", err)
+		os.Exit(1)
+	}
+}
+
+func claimWithRegistrar(conn *ethclient.Client, name string, registrar *registrar.DNSRegistrar) error {
+	sets, found, err := getProofs(dns.TypeTXT, "_ens." + name)
+	if err != nil {
+		return err
+	}
+
+	auth, err := makeTransactor(conn)
+	if err != nil {
+		log.Crit("Could not create transactor", "err", err)
+		os.Exit(1)
+	}
+
+	if found {
+		tx, err := registrar.Claim(auth, name, sets)
+		if err != nil {
+			return err
+		}
+		log.Info("Sent transaction", "tx", tx.Hash().String())
+	} else {
+		txs, err := registrar.Unclaim(auth, name, sets)
+		if err != nil {
+			return err
+		}
+		txids := make([]string, 0, len(txs))
+		for _, tx := range txs {
+			txids = append(txids, tx.Hash().String())
+		}
+		log.Info("Transactions sent", "txids", txids)
+	}
+
+	return nil
 }
