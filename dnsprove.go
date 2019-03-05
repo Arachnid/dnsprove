@@ -37,12 +37,12 @@ var (
 	verbosity       = flag.Int("verbosity", 3, "logging level verbosity (0-4)")
 	rpc             = flag.String("rpc", "http://localhost:8545", "RPC path to Ethereum node")
 	keyfile         = flag.String("keyfile", "", "Path to JSON keyfile")
-	yes             = flag.Bool("yes", false, "Do not prompt before sending transactions")
 	gasprice        = flag.Float64("gasprice", 5.0, "Gas price, in gwei")
 
 	proveFlags			= flag.NewFlagSet("prove", flag.ExitOnError)
 	oracleAddress   = proveFlags.String("address", "", "Contract address for DNSSEC oracle")
 	print           = proveFlags.Bool("print", false, "don't upload to the contract, just print proof data")
+	yes             = proveFlags.Bool("yes", false, "Do not prompt before sending transactions")
 
 	claimFlags      = flag.NewFlagSet("claim", flag.ExitOnError)
 	registryAddress = claimFlags.String("address", "0x314159265dd8dbb310642f98f50c066173c1259b", "Contract address for ENS registry")
@@ -504,15 +504,17 @@ func proveCommand(args []string) {
 		txs = append(txs, tx)
 	} else {
 		nsec := sets[len(sets) - 1]
-		var proof []byte
-		tx, err := o.SendProofs(auth, sets[:len(sets) - 1], known)
-		if err != nil {
-			log.Crit("Error sending proofs", "err", err)
-			os.Exit(1)
+		if known < len(sets) - 1 {
+			tx, err := o.SendProofs(auth, sets[:len(sets) - 1], known)
+			if err != nil {
+				log.Crit("Error sending proofs", "err", err)
+				os.Exit(1)
+			}
+			txs = append(txs, tx)
+			auth.Nonce = auth.Nonce.Add(auth.Nonce, big.NewInt(1))
 		}
-		txs = append(txs, tx)
 
-		proof, err = sets[len(sets) - 2].PackRRSet()
+		proof, err := sets[len(sets) - 2].PackRRSet()
 		if err != nil {
 				log.Crit("Could not pack proof for SOA record", "err", err)
 				os.Exit(1)

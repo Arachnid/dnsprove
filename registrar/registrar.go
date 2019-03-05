@@ -6,6 +6,8 @@ package registrar
 //go:generate abigen --sol ../contracts/dnsregistrar.sol --pkg contracts --out ../contracts/dnsregistrar.go
 
 import (
+  "math/big"
+
   "github.com/arachnid/dnsprove/contracts"
   "github.com/arachnid/dnsprove/oracle"
   "github.com/arachnid/dnsprove/proofs"
@@ -13,6 +15,7 @@ import (
   "github.com/ethereum/go-ethereum/common"
   "github.com/ethereum/go-ethereum/common/hexutil"
   "github.com/ethereum/go-ethereum/core/types"
+  "github.com/miekg/dns"
   log "github.com/inconshreveable/log15"
 )
 
@@ -84,5 +87,66 @@ func (r *DNSRegistrar) Claim(opts *bind.TransactOpts, name string, sets []proofs
 }
 
 func (r *DNSRegistrar) Unclaim(opts *bind.TransactOpts, name string, sets []proofs.SignedSet) ([]*types.Transaction, error) {
-  return nil, nil
+  var txs []*types.Transaction
+
+  o, err := r.GetOracle()
+	if err != nil {
+		return nil, err
+	}
+
+  nsec, sets := sets[len(sets) - 1], sets[:len(sets) - 1]
+
+  known, err := o.FindFirstUnknownProof(sets, true)
+  if err != nil {
+    return nil, err
+  }
+
+  // We're deleting a domain. If it's not there, there's nothing to do.
+  _, _, hash, err := o.Rrdata(dns.TypeTXT, "_ens." + name)
+  if err != nil {
+    return nil, err
+  }
+  if hash != [20]byte{} {
+    var proof []byte
+    // Update proofs so the NSEC can be verified.
+    if known < len(sets) {
+      log.Info("Sending transaction to update proofs", "name", "_ens." + name, "count", len(sets) - known)
+      tx, err := o.SendProofs(opts, sets, known)
+      if err != nil {
+        return nil, err
+      }
+      txs = append(txs, tx)
+      opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
+    }
+
+    // Use the NSEC's signing record as proof of its validity
+    proof, err = sets[len(sets) - 2].PackRRSet()
+    if err != nil {
+      return txs, err
+    }
+
+    // Send the NSEC to delete the TXT records
+    log.Info("Sending transaction to delete RRSet", "type", "TXT", "name", "_ens." + name)
+    deletetx, err := o.DeleteRRSet(opts, dns.TypeTXT, "_ens." + name, nsec, proof)
+    if err != nil {
+      return txs, err
+    }
+    opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
+    txs = append(txs, deletetx)
+  }
+
+  dnsname, err := oracle.PackName(name)
+  if err != nil {
+    return nil, err
+  }
+
+  // Unclaim the name
+  log.Info("Sending transaction to unclaim name", "name", name)
+  tx, err := r.r.Claim(opts, dnsname, []byte{})
+  if err != nil {
+    return txs, err
+  }
+  txs = append(txs, tx)
+
+  return txs, nil
 }
