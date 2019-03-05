@@ -6,193 +6,193 @@ package oracle
 //go:generate abigen --sol ../contracts/dnssec.sol --pkg contracts --out ../contracts/dnssec.go
 
 import (
-    "bytes"
-    "encoding/binary"
-    "fmt"
-    "math/big"
-    "time"
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"math/big"
+	"time"
 
-    "github.com/miekg/dns"
-    "github.com/ethereum/go-ethereum/accounts/abi/bind"
-    "github.com/ethereum/go-ethereum/common"
-    "github.com/ethereum/go-ethereum/common/hexutil"
-    "github.com/ethereum/go-ethereum/core/types"
-    "github.com/arachnid/dnsprove/contracts"
-    log "github.com/inconshreveable/log15"
-    "github.com/arachnid/dnsprove/proofs"
-    "golang.org/x/crypto/sha3"
+	"github.com/arachnid/dnsprove/contracts"
+	"github.com/arachnid/dnsprove/proofs"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	log "github.com/inconshreveable/log15"
+	"github.com/miekg/dns"
+	"golang.org/x/crypto/sha3"
 )
 
 type Oracle struct {
-    o *contracts.DNSSEC
-    backend bind.ContractBackend
+	o       *contracts.DNSSEC
+	backend bind.ContractBackend
 }
 
 func New(addr common.Address, backend bind.ContractBackend) (*Oracle, error) {
-    oracle, err := contracts.NewDNSSEC(addr, backend)
-    if err != nil {
-        return nil, err
-    }
+	oracle, err := contracts.NewDNSSEC(addr, backend)
+	if err != nil {
+		return nil, err
+	}
 
-    return &Oracle{
-        oracle,
-        backend,
-    }, nil
+	return &Oracle{
+		oracle,
+		backend,
+	}, nil
 }
 
 func PackName(name string) ([]byte, error) {
-    if name[len(name) - 1] != '.' {
-      name = name + "."
-    }
+	if name[len(name)-1] != '.' {
+		name = name + "."
+	}
 
-    ret := make([]byte, len(name) + 1)
-    pos, err := dns.PackDomainName(name, ret, 0, nil, false)
-    if err != nil {
-        return nil, err
-    }
-    return ret[:pos], nil
+	ret := make([]byte, len(name)+1)
+	pos, err := dns.PackDomainName(name, ret, 0, nil, false)
+	if err != nil {
+		return nil, err
+	}
+	return ret[:pos], nil
 }
 
 func (o *Oracle) FindFirstUnknownProof(p []proofs.SignedSet, found bool) (int, error) {
-    for i, set := range p {
-        if matches, err := o.RecordMatches(set); err != nil || !matches {
-            return i, err
-        }
-    }
-    return len(p), nil
+	for i, set := range p {
+		if matches, err := o.RecordMatches(set); err != nil || !matches {
+			return i, err
+		}
+	}
+	return len(p), nil
 }
 
 func (o *Oracle) Rrdata(rrtype uint16, name string) (uint32, uint64, [20]byte, error) {
-    packed, err := PackName(name)
-    if err != nil {
-        return 0, 0, [20]byte{}, err
-    }
+	packed, err := PackName(name)
+	if err != nil {
+		return 0, 0, [20]byte{}, err
+	}
 
-    result, err := o.o.Rrdata(nil, rrtype, packed)
-    return result.Inception, result.Inserted, result.Hash, err
+	result, err := o.o.Rrdata(nil, rrtype, packed)
+	return result.Inception, result.Inserted, result.Hash, err
 }
 
 func (o *Oracle) RecordMatches(set proofs.SignedSet) (bool, error) {
-    header := set.Rrs[0].Header()
+	header := set.Rrs[0].Header()
 
-    inception, inserted, hash, err := o.Rrdata(header.Rrtype, header.Name)
-    if err != nil {
-        return false, err
-    }
+	inception, inserted, hash, err := o.Rrdata(header.Rrtype, header.Name)
+	if err != nil {
+		return false, err
+	}
 
-    rrset, err := set.PackRRSet()
-    if err != nil {
-        return false, err
-    }
-    h := sha3.NewLegacyKeccak256()
-    h.Write(rrset)
-    ourhash := h.Sum(nil)
+	rrset, err := set.PackRRSet()
+	if err != nil {
+		return false, err
+	}
+	h := sha3.NewLegacyKeccak256()
+	h.Write(rrset)
+	ourhash := h.Sum(nil)
 
-    if inception == 0 {
-        log.Info("RRSET does not exist", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
-        return false, nil
-    } else if inception <= set.Sig.Inception && (!bytes.Equal(hash[:], ourhash[:20]) || int64(inserted) + int64(header.Ttl) < time.Now().Unix()) {
-        log.Info("RRSET exists but is out of date", "name", header.Name, "type", dns.TypeToString[header.Rrtype], "current", inception, "new", set.Sig.Inception, "oldhash", hexutil.Encode(hash[:]), "newhash", hexutil.Encode(ourhash[:20]))
-        return false, nil
-    } else if inception > set.Sig.Inception {
-        return false, fmt.Errorf("Oracle's RRSET has inception after our record's inception: name=%s, type=%s, oracleInception=%d, inception=%d", header.Name, dns.TypeToString[header.Rrtype], inception, set.Sig.Inception)
-    }
+	if inception == 0 {
+		log.Info("RRSET does not exist", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
+		return false, nil
+	} else if inception <= set.Sig.Inception && (!bytes.Equal(hash[:], ourhash[:20]) || int64(inserted)+int64(header.Ttl) < time.Now().Unix()) {
+		log.Info("RRSET exists but is out of date", "name", header.Name, "type", dns.TypeToString[header.Rrtype], "current", inception, "new", set.Sig.Inception, "oldhash", hexutil.Encode(hash[:]), "newhash", hexutil.Encode(ourhash[:20]))
+		return false, nil
+	} else if inception > set.Sig.Inception {
+		return false, fmt.Errorf("Oracle's RRSET has inception after our record's inception: name=%s, type=%s, oracleInception=%d, inception=%d", header.Name, dns.TypeToString[header.Rrtype], inception, set.Sig.Inception)
+	}
 
-    log.Info("RRSET already exists", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
-    return true, nil
+	log.Info("RRSET already exists", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
+	return true, nil
 }
 
 func (o *Oracle) SerializeProofs(p []proofs.SignedSet, known int) ([]byte, []byte, error) {
-  buf := new(bytes.Buffer)
+	buf := new(bytes.Buffer)
 
-  var proof []byte
-  if known == 0 {
-      // Get the trust anchors as initial proof
-      var err error
-      proof, err = o.o.Anchors(nil)
-      if err != nil {
-          return nil, nil, err
-      }
-  } else {
-    var err error
-    proof, err = p[known - 1].PackRRSet()
-    if err != nil {
-        return nil, nil, err
-    }
-  }
+	var proof []byte
+	if known == 0 {
+		// Get the trust anchors as initial proof
+		var err error
+		proof, err = o.o.Anchors(nil)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		var err error
+		proof, err = p[known-1].PackRRSet()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 
-  for i := known; i < len(p); i++ {
-      set := p[i]
-      header := set.Rrs[0].Header()
+	for i := known; i < len(p); i++ {
+		set := p[i]
+		header := set.Rrs[0].Header()
 
-      data, err := set.Pack()
-      if err != nil {
-          return nil, nil, err
-      }
+		data, err := set.Pack()
+		if err != nil {
+			return nil, nil, err
+		}
 
-      sig, err := set.PackSignature()
-      if err != nil {
-          return nil, nil, err
-      }
+		sig, err := set.PackSignature()
+		if err != nil {
+			return nil, nil, err
+		}
 
-      if err := binary.Write(buf, binary.BigEndian, uint16(len(data))); err != nil {
-        return nil, nil, err
-      }
-      if _, err := buf.Write(data); err != nil {
-        return nil, nil, err
-      }
-      if err := binary.Write(buf, binary.BigEndian, uint16(len(sig))); err != nil {
-        return nil, nil, err
-      }
-      if _, err := buf.Write(sig); err != nil {
-        return nil, nil, err
-      }
-      log.Info("Adding proof to transaction", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
-  }
-  return buf.Bytes(), proof, nil
+		if err := binary.Write(buf, binary.BigEndian, uint16(len(data))); err != nil {
+			return nil, nil, err
+		}
+		if _, err := buf.Write(data); err != nil {
+			return nil, nil, err
+		}
+		if err := binary.Write(buf, binary.BigEndian, uint16(len(sig))); err != nil {
+			return nil, nil, err
+		}
+		if _, err := buf.Write(sig); err != nil {
+			return nil, nil, err
+		}
+		log.Info("Adding proof to transaction", "name", header.Name, "type", dns.TypeToString[header.Rrtype])
+	}
+	return buf.Bytes(), proof, nil
 }
 
 func (o *Oracle) GetContract() *contracts.DNSSEC {
-  return o.o
+	return o.o
 }
 
 func (o *Oracle) SendProofs(opts *bind.TransactOpts, p []proofs.SignedSet, known int) (*types.Transaction, error) {
-    data, proof, err := o.SerializeProofs(p, known)
-    if err != nil {
-      return nil, err
-    }
+	data, proof, err := o.SerializeProofs(p, known)
+	if err != nil {
+		return nil, err
+	}
 
-    log.Info("Submitting transaction.", "proofs", len(p) - known)
-    log.Debug("Signature info", "data", hexutil.Encode(data))
-    tx, err := o.o.SubmitRRSets(opts, data, proof)
-    if err != nil {
-        return nil, err
-    }
+	log.Info("Submitting transaction.", "proofs", len(p)-known)
+	log.Debug("Signature info", "data", hexutil.Encode(data))
+	tx, err := o.o.SubmitRRSets(opts, data, proof)
+	if err != nil {
+		return nil, err
+	}
 
-    return tx, nil
+	return tx, nil
 }
 
 func (o *Oracle) DeleteRRSet(opts *bind.TransactOpts, dnsType uint16, name string, nsec proofs.SignedSet, proof []byte) (*types.Transaction, error) {
-    log.Info("Deleting RRSet", "type", dns.TypeToString[dnsType], "name", name, "nsec", nsec.Rrs)
-    packedName, err := PackName(name)
-    if err != nil {
-        return nil, err
-    }
+	log.Info("Deleting RRSet", "type", dns.TypeToString[dnsType], "name", name, "nsec", nsec.Rrs)
+	packedName, err := PackName(name)
+	if err != nil {
+		return nil, err
+	}
 
-    data, err := nsec.Pack()
-    if err != nil {
-        return nil, err
-    }
+	data, err := nsec.Pack()
+	if err != nil {
+		return nil, err
+	}
 
-    sig, err := nsec.PackSignature()
-    if err != nil {
-        return nil, err
-    }
+	sig, err := nsec.PackSignature()
+	if err != nil {
+		return nil, err
+	}
 
-    opts.GasLimit = 150000
-    tx, err := o.o.DeleteRRSet(opts, dnsType, packedName, data, sig, proof)
-    opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
-    opts.GasLimit = 0
+	opts.GasLimit = 150000
+	tx, err := o.o.DeleteRRSet(opts, dnsType, packedName, data, sig, proof)
+	opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
+	opts.GasLimit = 0
 
-    return tx, err
+	return tx, err
 }

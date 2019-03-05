@@ -24,57 +24,57 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/miekg/dns"
 	"github.com/ethereum/go-ethereum/ethclient"
 	log "github.com/inconshreveable/log15"
+	"github.com/miekg/dns"
 	prompt "github.com/segmentio/go-prompt"
 )
 
 var (
-	server          = flag.String("server", "https://dns.google.com/experimental", "The URL of the dns-over-https server to use")
-	hashes          = flag.String("hashes", "SHA256", "a comma-separated list of supported hash algorithms")
-	algorithms      = flag.String("algorithms", "RSASHA256", "a comma-separated list of supported digest algorithms")
-	verbosity       = flag.Int("verbosity", 3, "logging level verbosity (0-4)")
-	rpc             = flag.String("rpc", "http://localhost:8545", "RPC path to Ethereum node")
-	keyfile         = flag.String("keyfile", "", "Path to JSON keyfile")
-	gasprice        = flag.Float64("gasprice", 5.0, "Gas price, in gwei")
+	server     = flag.String("server", "https://dns.google.com/experimental", "The URL of the dns-over-https server to use")
+	hashes     = flag.String("hashes", "SHA256", "a comma-separated list of supported hash algorithms")
+	algorithms = flag.String("algorithms", "RSASHA256", "a comma-separated list of supported digest algorithms")
+	verbosity  = flag.Int("verbosity", 3, "logging level verbosity (0-4)")
+	rpc        = flag.String("rpc", "http://localhost:8545", "RPC path to Ethereum node")
+	keyfile    = flag.String("keyfile", "", "Path to JSON keyfile")
+	gasprice   = flag.Float64("gasprice", 5.0, "Gas price, in gwei")
 
-	proveFlags			= flag.NewFlagSet("prove", flag.ExitOnError)
-	oracleAddress   = proveFlags.String("address", "", "Contract address for DNSSEC oracle")
-	print           = proveFlags.Bool("print", false, "don't upload to the contract, just print proof data")
-	yes             = proveFlags.Bool("yes", false, "Do not prompt before sending transactions")
+	proveFlags    = flag.NewFlagSet("prove", flag.ExitOnError)
+	oracleAddress = proveFlags.String("address", "", "Contract address for DNSSEC oracle")
+	print         = proveFlags.Bool("print", false, "don't upload to the contract, just print proof data")
+	yes           = proveFlags.Bool("yes", false, "Do not prompt before sending transactions")
 
 	claimFlags      = flag.NewFlagSet("claim", flag.ExitOnError)
 	registryAddress = claimFlags.String("address", "0x314159265dd8dbb310642f98f50c066173c1259b", "Contract address for ENS registry")
 
-	subcommands = map[string]func([]string) {
+	subcommands = map[string]func([]string){
 		"prove": proveCommand,
 		"claim": claimCommand,
 	}
 
 	trustAnchors = []*dns.DS{
 		&dns.DS{
-			Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeDS, Class: dns.ClassINET},
-			KeyTag: 20326,
-			Algorithm: 8,
+			Hdr:        dns.RR_Header{Name: ".", Rrtype: dns.TypeDS, Class: dns.ClassINET},
+			KeyTag:     20326,
+			Algorithm:  8,
 			DigestType: 2,
-			Digest: "E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D",
+			Digest:     "E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D",
 		},
 	}
 )
 
 type dnskeyEntry struct {
-	name string
+	name      string
 	algorithm uint8
-	keytag uint16
+	keytag    uint16
 }
 
 type Client struct {
-	c *dns.Client
-	nameserver string
-	knownHashes map[dnskeyEntry][]*dns.DS
+	c                   *dns.Client
+	nameserver          string
+	knownHashes         map[dnskeyEntry][]*dns.DS
 	supportedAlgorithms map[uint8]struct{}
-	supportedDigests map[uint8]struct{}
+	supportedDigests    map[uint8]struct{}
 }
 
 func (client *Client) addDS(ds *dns.DS) {
@@ -94,11 +94,11 @@ func (client *Client) supportsDigest(digest uint8) bool {
 
 func NewClient(nameserver string, roots []*dns.DS, algorithms, digests map[uint8]struct{}) *Client {
 	client := &Client{
-		c: new(dns.Client),
-		nameserver: nameserver,
-		knownHashes: make(map[dnskeyEntry][]*dns.DS),
+		c:                   new(dns.Client),
+		nameserver:          nameserver,
+		knownHashes:         make(map[dnskeyEntry][]*dns.DS),
 		supportedAlgorithms: algorithms,
-		supportedDigests: digests,
+		supportedDigests:    digests,
 	}
 	for _, root := range roots {
 		client.addDS(root)
@@ -117,8 +117,8 @@ func (client *Client) Query(qtype uint16, qclass uint16, name string) (*dns.Msg,
 		},
 		Question: []dns.Question{
 			dns.Question{
-				Name: dns.Fqdn(name),
-				Qtype: qtype,
+				Name:   dns.Fqdn(name),
+				Qtype:  qtype,
 				Qclass: qclass,
 			},
 		},
@@ -167,7 +167,7 @@ func (client *Client) Query(qtype uint16, qclass uint16, name string) (*dns.Msg,
 func (client *Client) QueryWithProof(qtype, qclass uint16, name string) ([]proofs.SignedSet, bool, error) {
 	found := false
 
-	if name[len(name) - 1] != '.' {
+	if name[len(name)-1] != '.' {
 		name = name + "."
 	}
 
@@ -284,7 +284,7 @@ func (client *Client) verifyWithDS(key *dns.DNSKEY) ([]proofs.SignedSet, error) 
 	if !found {
 		return nil, fmt.Errorf("DS %s not found", key.Header().Name)
 	}
-	for _, ds := range sets[len(sets) - 1].Rrs {
+	for _, ds := range sets[len(sets)-1].Rrs {
 		ds := ds.(*dns.DS)
 		if !client.supportsDigest(ds.DigestType) {
 			continue
@@ -338,10 +338,10 @@ func getNSECRRs(rrs []dns.RR, name string) []dns.RR {
 }
 
 func min(a, b int) int {
-    if a < b {
-        return a
-    }
-    return b
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func compareDomainNames(a, b string) int {
@@ -349,7 +349,7 @@ func compareDomainNames(a, b string) int {
 	blabels := dns.SplitDomainName(b)
 
 	for i := 1; i <= min(len(alabels), len(blabels)); i++ {
-		result := strings.Compare(alabels[len(alabels) - i], blabels[len(blabels) - i])
+		result := strings.Compare(alabels[len(alabels)-i], blabels[len(blabels)-i])
 		if result != 0 {
 			return result
 		}
@@ -372,7 +372,7 @@ func main() {
 	}
 	flag.Parse()
 
-	if flag.NArg() == 0  {
+	if flag.NArg() == 0 {
 		flag.Usage()
 		return
 	}
@@ -464,7 +464,7 @@ func proveCommand(args []string) {
 		}
 	} else {
 		// If the RRset already matches, there's nothing to do
-		matches, err := o.RecordMatches(sets[len(sets) - 1])
+		matches, err := o.RecordMatches(sets[len(sets)-1])
 		if err != nil {
 			log.Crit("Error checking for record", "err", err)
 			os.Exit(1)
@@ -482,7 +482,7 @@ func proveCommand(args []string) {
 	}
 
 	if !*yes {
-		if !prompt.Confirm("Send a transaction to prove %s %s (%d proofs) onchain?", dns.TypeToString[sets[len(sets) - 1].Rrs[0].Header().Rrtype], name, len(sets) - known) {
+		if !prompt.Confirm("Send a transaction to prove %s %s (%d proofs) onchain?", dns.TypeToString[sets[len(sets)-1].Rrs[0].Header().Rrtype], name, len(sets)-known) {
 			fmt.Printf("Exiting at user request.\n")
 			return
 		}
@@ -503,9 +503,9 @@ func proveCommand(args []string) {
 		}
 		txs = append(txs, tx)
 	} else {
-		nsec := sets[len(sets) - 1]
-		if known < len(sets) - 1 {
-			tx, err := o.SendProofs(auth, sets[:len(sets) - 1], known)
+		nsec := sets[len(sets)-1]
+		if known < len(sets)-1 {
+			tx, err := o.SendProofs(auth, sets[:len(sets)-1], known)
 			if err != nil {
 				log.Crit("Error sending proofs", "err", err)
 				os.Exit(1)
@@ -514,10 +514,10 @@ func proveCommand(args []string) {
 			auth.Nonce = auth.Nonce.Add(auth.Nonce, big.NewInt(1))
 		}
 
-		proof, err := sets[len(sets) - 2].PackRRSet()
+		proof, err := sets[len(sets)-2].PackRRSet()
 		if err != nil {
-				log.Crit("Could not pack proof for SOA record", "err", err)
-				os.Exit(1)
+			log.Crit("Could not pack proof for SOA record", "err", err)
+			os.Exit(1)
 		}
 
 		deletetx, err := o.DeleteRRSet(auth, qtype, name, nsec, proof)
@@ -556,31 +556,31 @@ func makeTransactor(conn *ethclient.Client) (*bind.TransactOpts, error) {
 
 func updateNonce(conn *ethclient.Client, auth *bind.TransactOpts) error {
 	nonce, err := conn.PendingNonceAt(context.TODO(), auth.From)
-  if err != nil {
+	if err != nil {
 		return err
-  }
+	}
 	auth.Nonce = big.NewInt(int64(nonce))
 	return nil
 }
 
 func getProofs(qtype uint16, name string) ([]proofs.SignedSet, bool, error) {
-		qclass := uint16(dns.ClassINET)
-		if !strings.HasSuffix(name, ".") {
-			name = name + "."
-		}
+	qclass := uint16(dns.ClassINET)
+	if !strings.HasSuffix(name, ".") {
+		name = name + "."
+	}
 
-		hashmap := make(map[uint8]struct{})
-		for _, hashname := range strings.Split(*hashes, ",") {
-			hashmap[dns.StringToHash[hashname]] = struct{}{}
-		}
+	hashmap := make(map[uint8]struct{})
+	for _, hashname := range strings.Split(*hashes, ",") {
+		hashmap[dns.StringToHash[hashname]] = struct{}{}
+	}
 
-		algmap := make(map[uint8]struct{})
-		for _, algname := range strings.Split(*algorithms, ",") {
-			algmap[dns.StringToAlgorithm[algname]] = struct{}{}
-		}
+	algmap := make(map[uint8]struct{})
+	for _, algname := range strings.Split(*algorithms, ",") {
+		algmap[dns.StringToAlgorithm[algname]] = struct{}{}
+	}
 
-		client := NewClient(*server, trustAnchors, algmap, hashmap)
-		return client.QueryWithProof(qtype, qclass, name)
+	client := NewClient(*server, trustAnchors, algmap, hashmap)
+	return client.QueryWithProof(qtype, qclass, name)
 }
 
 func claimCommand(args []string) {
@@ -641,7 +641,7 @@ func claimCommand(args []string) {
 }
 
 func claimWithRegistrar(conn *ethclient.Client, name string, registrar *registrar.DNSRegistrar) error {
-	sets, found, err := getProofs(dns.TypeTXT, "_ens." + name)
+	sets, found, err := getProofs(dns.TypeTXT, "_ens."+name)
 	if err != nil {
 		return err
 	}
