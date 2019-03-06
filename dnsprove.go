@@ -34,8 +34,8 @@ import (
 
 var (
 	server     = flag.String("server", "https://dns.google.com/experimental", "The URL of the dns-over-https server to use")
-	hashes     = flag.String("hashes", "SHA256", "a comma-separated list of supported hash algorithms")
-	algorithms = flag.String("algorithms", "RSASHA256", "a comma-separated list of supported digest algorithms")
+	hashes     = flag.String("hashes", "SHA1,SHA256", "a comma-separated list of supported hash algorithms")
+	algorithms = flag.String("algorithms", "RSASHA1,RSASHA1-NSEC3-SHA1,RSASHA256", "a comma-separated list of supported digest algorithms")
 	verbosity  = flag.Int("verbosity", 3, "logging level verbosity (0-4)")
 	rpc        = flag.String("rpc", "http://localhost:8545", "RPC path to Ethereum node")
 	keyfile    = flag.String("keyfile", "", "Path to JSON keyfile")
