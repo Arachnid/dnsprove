@@ -20,7 +20,7 @@ import (
 	"github.com/miekg/dns"
 )
 
-var DNSSEC_ROOT_CLAIM_INTERFACE_ID = [4]byte{0xde, 0x0b, 0xa7, 0x5d}
+var DNSSEC_ROOT_CLAIM_INTERFACE_ID = [4]byte{0xc7, 0xfe, 0x16, 0xbf}
 var InterfaceNotSupportedError = errors.New("Interface not supported")
 
 type Root struct {
@@ -95,7 +95,7 @@ func (r *Root) Claim(opts *bind.TransactOpts, name string, sets []proofs.SignedS
 	}
 }
 
-func (r *Root) ClaimDefault(opts *bind.TransactOpts, name string, nsecsets, soasets []proofs.SignedSet) ([]*types.Transaction, error) {
+func (r *Root) ClaimDefault(opts *bind.TransactOpts, name string, nsecsets, dssets []proofs.SignedSet) ([]*types.Transaction, error) {
 	var txs []*types.Transaction
 
 	o, err := r.GetOracle()
@@ -144,34 +144,36 @@ func (r *Root) ClaimDefault(opts *bind.TransactOpts, name string, nsecsets, soas
 		txs = append(txs, deletetx)
 	}
 
-  // Submit the SOA record
-  known, err := o.FindFirstUnknownProof(soasets)
+  known, err := o.FindFirstUnknownProof(dssets)
   if err != nil {
     return nil, err
   }
 
-  if known < len(soasets) {
-    log.Info("Sending transaction to submit SOA", "name", name, "count", len(soasets)-known)
-    tx, err := o.SendProofs(opts, soasets, known)
-    if err != nil {
-      return nil, err
-    }
-    txs = append(txs, tx)
-    opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
-  }
-
-	dnsname, err := oracle.PackName(name)
+  dnsname, err := oracle.PackName(name)
 	if err != nil {
 		return nil, err
 	}
 
-	// Unclaim the name
-	log.Info("Sending transaction to set name to default registrar", "name", name)
-	tx, err := r.r.RegisterTLD(opts, dnsname, []byte{})
-	if err != nil {
-		return txs, err
-	}
-	txs = append(txs, tx)
+  if known < len(dssets) {
+    data, proof, err := o.SerializeProofs(dssets, known)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Info("Transaction to proveAndRegisterDefaultTLD()", "name", name, "data", hexutil.Encode(data), "lastProof", hexutil.Encode(proof))
+		tx, err := r.r.ProveAndRegisterDefaultTLD(opts, dnsname, data, proof)
+    if err != nil {
+      return nil, err
+    }
+    txs = append(txs, tx)
+  } else {
+  	log.Info("Sending transaction to set name to default registrar", "name", name)
+  	tx, err := r.r.RegisterTLD(opts, dnsname, []byte{})
+  	if err != nil {
+  		return txs, err
+  	}
+  	txs = append(txs, tx)
+  }
 
 	return txs, nil
 }

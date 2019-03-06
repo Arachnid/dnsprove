@@ -521,7 +521,7 @@ func proveCommand(args []string) {
 
 		proof, err := sets[len(sets)-2].PackRRSet()
 		if err != nil {
-			log.Crit("Could not pack proof for SOA record", "err", err)
+			log.Crit("Could not pack proof for record", "err", err)
 			os.Exit(1)
 		}
 
@@ -712,7 +712,7 @@ func claimWithRoot(conn *ethclient.Client, name string, root *root.Root) error {
 		}
 		log.Info("Sent transaction", "tx", tx.Hash().String())
 	} else {
-		soasets, found, err := getProofs(dns.TypeSOA, name)
+		dssets, found, err := getProofs(dns.TypeDS, name)
 		if err != nil {
 			return err
 		}
@@ -726,7 +726,7 @@ func claimWithRoot(conn *ethclient.Client, name string, root *root.Root) error {
 			os.Exit(1)
 		}
 
-		txs, err := root.ClaimDefault(auth, name, sets, soasets)
+		txs, err := root.ClaimDefault(auth, name, sets, dssets)
 		if err != nil {
 			return err
 		}

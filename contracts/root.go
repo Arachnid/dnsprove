@@ -28,7 +28,7 @@ var (
 )
 
 // RootABI is the input ABI used to generate the binding from.
-const RootABI = "[{\"constant\":true,\"inputs\":[{\"name\":\"interfaceID\",\"type\":\"bytes4\"}],\"name\":\"supportsInterface\",\"outputs\":[{\"name\":\"\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"pure\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"input\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"proveAndRegisterTLD\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[],\"name\":\"oracle\",\"outputs\":[{\"name\":\"\",\"type\":\"address\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"registerTLD\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
+const RootABI = "[{\"constant\":true,\"inputs\":[{\"name\":\"interfaceID\",\"type\":\"bytes4\"}],\"name\":\"supportsInterface\",\"outputs\":[{\"name\":\"\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"pure\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"input\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"proveAndRegisterDefaultTLD\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"input\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"proveAndRegisterTLD\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[],\"name\":\"oracle\",\"outputs\":[{\"name\":\"\",\"type\":\"address\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"registerTLD\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
 
 // RootBin is the compiled bytecode used for deploying new contracts.
 const RootBin = `0x`
@@ -238,6 +238,27 @@ func (_Root *RootSession) SupportsInterface(interfaceID [4]byte) (bool, error) {
 // Solidity: function supportsInterface(bytes4 interfaceID) constant returns(bool)
 func (_Root *RootCallerSession) SupportsInterface(interfaceID [4]byte) (bool, error) {
 	return _Root.Contract.SupportsInterface(&_Root.CallOpts, interfaceID)
+}
+
+// ProveAndRegisterDefaultTLD is a paid mutator transaction binding the contract method 0x19f5b1e2.
+//
+// Solidity: function proveAndRegisterDefaultTLD(bytes name, bytes input, bytes proof) returns()
+func (_Root *RootTransactor) ProveAndRegisterDefaultTLD(opts *bind.TransactOpts, name []byte, input []byte, proof []byte) (*types.Transaction, error) {
+	return _Root.contract.Transact(opts, "proveAndRegisterDefaultTLD", name, input, proof)
+}
+
+// ProveAndRegisterDefaultTLD is a paid mutator transaction binding the contract method 0x19f5b1e2.
+//
+// Solidity: function proveAndRegisterDefaultTLD(bytes name, bytes input, bytes proof) returns()
+func (_Root *RootSession) ProveAndRegisterDefaultTLD(name []byte, input []byte, proof []byte) (*types.Transaction, error) {
+	return _Root.Contract.ProveAndRegisterDefaultTLD(&_Root.TransactOpts, name, input, proof)
+}
+
+// ProveAndRegisterDefaultTLD is a paid mutator transaction binding the contract method 0x19f5b1e2.
+//
+// Solidity: function proveAndRegisterDefaultTLD(bytes name, bytes input, bytes proof) returns()
+func (_Root *RootTransactorSession) ProveAndRegisterDefaultTLD(name []byte, input []byte, proof []byte) (*types.Transaction, error) {
+	return _Root.Contract.ProveAndRegisterDefaultTLD(&_Root.TransactOpts, name, input, proof)
 }
 
 // ProveAndRegisterTLD is a paid mutator transaction binding the contract method 0x245b79ad.
