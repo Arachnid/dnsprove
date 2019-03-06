@@ -80,7 +80,7 @@ func (r *Root) Claim(opts *bind.TransactOpts, name string, sets []proofs.SignedS
 		log.Info("Transaction to registerTLD()", "name", name, "proof", hexutil.Encode(proof))
 		return r.r.RegisterTLD(opts, dnsname, proof)
 	} else {
-		known, err := o.FindFirstUnknownProof(sets, true)
+		known, err := o.FindFirstUnknownProof(sets)
 		if err != nil {
 			return nil, err
 		}
@@ -95,7 +95,7 @@ func (r *Root) Claim(opts *bind.TransactOpts, name string, sets []proofs.SignedS
 	}
 }
 
-func (r *Root) ClaimDefault(opts *bind.TransactOpts, name string, sets []proofs.SignedSet) ([]*types.Transaction, error) {
+func (r *Root) ClaimDefault(opts *bind.TransactOpts, name string, nsecsets, soasets []proofs.SignedSet) ([]*types.Transaction, error) {
 	var txs []*types.Transaction
 
 	o, err := r.GetOracle()
@@ -103,24 +103,24 @@ func (r *Root) ClaimDefault(opts *bind.TransactOpts, name string, sets []proofs.
 		return nil, err
 	}
 
-	nsec, sets := sets[len(sets)-1], sets[:len(sets)-1]
-
-	known, err := o.FindFirstUnknownProof(sets, true)
-	if err != nil {
-		return nil, err
-	}
-
-	// We're deleting a domain. If it's not there, there's nothing to do.
+	// Check if the TXT record is there and so requires deleting.
 	_, _, hash, err := o.Rrdata(dns.TypeTXT, "_ens.nic."+name)
 	if err != nil {
 		return nil, err
 	}
 	if hash != [20]byte{} {
+    nsec, nsecsets := nsecsets[len(nsecsets)-1], nsecsets[:len(nsecsets)-1]
+
+  	known, err := o.FindFirstUnknownProof(nsecsets)
+  	if err != nil {
+  		return nil, err
+  	}
+
 		var proof []byte
 		// Update proofs so the NSEC can be verified.
-		if known < len(sets) {
-			log.Info("Sending transaction to update proofs", "name", "_ens."+name, "count", len(sets)-known)
-			tx, err := o.SendProofs(opts, sets, known)
+		if known < len(nsecsets) {
+			log.Info("Sending transaction to update proofs", "name", "_ens."+name, "count", len(nsecsets)-known)
+			tx, err := o.SendProofs(opts, nsecsets, known)
 			if err != nil {
 				return nil, err
 			}
@@ -129,7 +129,7 @@ func (r *Root) ClaimDefault(opts *bind.TransactOpts, name string, sets []proofs.
 		}
 
 		// Use the NSEC's signing record as proof of its validity
-		proof, err = sets[len(sets)-2].PackRRSet()
+		proof, err = nsecsets[len(nsecsets)-2].PackRRSet()
 		if err != nil {
 			return txs, err
 		}
@@ -143,6 +143,22 @@ func (r *Root) ClaimDefault(opts *bind.TransactOpts, name string, sets []proofs.
 		opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
 		txs = append(txs, deletetx)
 	}
+
+  // Submit the SOA record
+  known, err := o.FindFirstUnknownProof(soasets)
+  if err != nil {
+    return nil, err
+  }
+
+  if known < len(soasets) {
+    log.Info("Sending transaction to submit SOA", "name", name, "count", len(soasets)-known)
+    tx, err := o.SendProofs(opts, soasets, known)
+    if err != nil {
+      return nil, err
+    }
+    txs = append(txs, tx)
+    opts.Nonce = opts.Nonce.Add(opts.Nonce, big.NewInt(1))
+  }
 
 	dnsname, err := oracle.PackName(name)
 	if err != nil {

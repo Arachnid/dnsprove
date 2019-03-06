@@ -53,7 +53,7 @@ func PackName(name string) ([]byte, error) {
 	return ret[:pos], nil
 }
 
-func (o *Oracle) FindFirstUnknownProof(p []proofs.SignedSet, found bool) (int, error) {
+func (o *Oracle) FindFirstUnknownProof(p []proofs.SignedSet) (int, error) {
 	for i, set := range p {
 		if matches, err := o.RecordMatches(set); err != nil || !matches {
 			return i, err

@@ -80,7 +80,7 @@ func (r *DNSRegistrar) Claim(opts *bind.TransactOpts, name string, sets []proofs
 		log.Info("Transaction to claim()", "name", name, "proof", hexutil.Encode(proof))
 		return r.r.Claim(opts, dnsname, proof)
 	} else {
-		known, err := o.FindFirstUnknownProof(sets, true)
+		known, err := o.FindFirstUnknownProof(sets)
 		if err != nil {
 			return nil, err
 		}
@@ -105,7 +105,7 @@ func (r *DNSRegistrar) Unclaim(opts *bind.TransactOpts, name string, sets []proo
 
 	nsec, sets := sets[len(sets)-1], sets[:len(sets)-1]
 
-	known, err := o.FindFirstUnknownProof(sets, true)
+	known, err := o.FindFirstUnknownProof(sets)
 	if err != nil {
 		return nil, err
 	}

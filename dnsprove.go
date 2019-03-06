@@ -39,6 +39,7 @@ var (
 	verbosity  = flag.Int("verbosity", 3, "logging level verbosity (0-4)")
 	rpc        = flag.String("rpc", "http://localhost:8545", "RPC path to Ethereum node")
 	keyfile    = flag.String("keyfile", "", "Path to JSON keyfile")
+	insecure   = flag.Bool("insecure", false, "Do not prompt for a password, assume the empty string")
 	gasprice   = flag.Float64("gasprice", 5.0, "Gas price, in gwei")
 
 	proveFlags    = flag.NewFlagSet("prove", flag.ExitOnError)
@@ -479,7 +480,7 @@ func proveCommand(args []string) {
 		}
 	}
 
-	known, err := o.FindFirstUnknownProof(sets, found)
+	known, err := o.FindFirstUnknownProof(sets)
 	if err != nil {
 		log.Crit("Error checking proofs against oracle", "err", err)
 		os.Exit(1)
@@ -546,7 +547,10 @@ func makeTransactor(conn *ethclient.Client) (*bind.TransactOpts, error) {
 		os.Exit(1)
 	}
 
-	pass := prompt.Password("Password")
+	pass := ""
+	if !*insecure {
+		pass = prompt.Password("Password")
+	}
 	auth, err := bind.NewTransactor(key, pass)
 	if err != nil {
 		return nil, err
@@ -695,20 +699,20 @@ func claimWithRoot(conn *ethclient.Client, name string, root *root.Root) error {
 		return err
 	}
 
-	auth, err := makeTransactor(conn)
-	if err != nil {
-		log.Crit("Could not create transactor", "err", err)
-		os.Exit(1)
-	}
-
 	if found {
+		auth, err := makeTransactor(conn)
+		if err != nil {
+			log.Crit("Could not create transactor", "err", err)
+			os.Exit(1)
+		}
+
 		tx, err := root.Claim(auth, name, sets)
 		if err != nil {
 			return err
 		}
 		log.Info("Sent transaction", "tx", tx.Hash().String())
 	} else {
-		sets, found, err := getProofs(dns.TypeSOA, name)
+		soasets, found, err := getProofs(dns.TypeSOA, name)
 		if err != nil {
 			return err
 		}
@@ -716,7 +720,13 @@ func claimWithRoot(conn *ethclient.Client, name string, root *root.Root) error {
 			return fmt.Errorf("Cannot claim name %s: Not found in DNS", name)
 		}
 
-		txs, err := root.ClaimDefault(auth, name, sets)
+		auth, err := makeTransactor(conn)
+		if err != nil {
+			log.Crit("Could not create transactor", "err", err)
+			os.Exit(1)
+		}
+
+		txs, err := root.ClaimDefault(auth, name, sets, soasets)
 		if err != nil {
 			return err
 		}
