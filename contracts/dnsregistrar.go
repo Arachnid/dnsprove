@@ -28,7 +28,7 @@ var (
 )
 
 // DNSRegistrarABI is the input ABI used to generate the binding from.
-const DNSRegistrarABI = "[{\"constant\":true,\"inputs\":[],\"name\":\"oracle\",\"outputs\":[{\"name\":\"\",\"type\":\"address\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"claim\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"input\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"proveAndClaim\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
+const DNSRegistrarABI = "[{\"constant\":true,\"inputs\":[{\"name\":\"interfaceID\",\"type\":\"bytes4\"}],\"name\":\"supportsInterface\",\"outputs\":[{\"name\":\"\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"pure\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[],\"name\":\"oracle\",\"outputs\":[{\"name\":\"\",\"type\":\"address\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"claim\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"name\",\"type\":\"bytes\"},{\"name\":\"input\",\"type\":\"bytes\"},{\"name\":\"proof\",\"type\":\"bytes\"}],\"name\":\"proveAndClaim\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
 
 // DNSRegistrarBin is the compiled bytecode used for deploying new contracts.
 const DNSRegistrarBin = `0x`
@@ -212,6 +212,32 @@ func (_DNSRegistrar *DNSRegistrarSession) Oracle() (common.Address, error) {
 // Solidity: function oracle() constant returns(address)
 func (_DNSRegistrar *DNSRegistrarCallerSession) Oracle() (common.Address, error) {
 	return _DNSRegistrar.Contract.Oracle(&_DNSRegistrar.CallOpts)
+}
+
+// SupportsInterface is a free data retrieval call binding the contract method 0x01ffc9a7.
+//
+// Solidity: function supportsInterface(bytes4 interfaceID) constant returns(bool)
+func (_DNSRegistrar *DNSRegistrarCaller) SupportsInterface(opts *bind.CallOpts, interfaceID [4]byte) (bool, error) {
+	var (
+		ret0 = new(bool)
+	)
+	out := ret0
+	err := _DNSRegistrar.contract.Call(opts, out, "supportsInterface", interfaceID)
+	return *ret0, err
+}
+
+// SupportsInterface is a free data retrieval call binding the contract method 0x01ffc9a7.
+//
+// Solidity: function supportsInterface(bytes4 interfaceID) constant returns(bool)
+func (_DNSRegistrar *DNSRegistrarSession) SupportsInterface(interfaceID [4]byte) (bool, error) {
+	return _DNSRegistrar.Contract.SupportsInterface(&_DNSRegistrar.CallOpts, interfaceID)
+}
+
+// SupportsInterface is a free data retrieval call binding the contract method 0x01ffc9a7.
+//
+// Solidity: function supportsInterface(bytes4 interfaceID) constant returns(bool)
+func (_DNSRegistrar *DNSRegistrarCallerSession) SupportsInterface(interfaceID [4]byte) (bool, error) {
+	return _DNSRegistrar.Contract.SupportsInterface(&_DNSRegistrar.CallOpts, interfaceID)
 }
 
 // Claim is a paid mutator transaction binding the contract method 0xbe27b22c.

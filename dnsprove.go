@@ -9,6 +9,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -21,6 +22,7 @@ import (
 	"github.com/arachnid/dnsprove/oracle"
 	"github.com/arachnid/dnsprove/proofs"
 	"github.com/arachnid/dnsprove/registrar"
+	"github.com/arachnid/dnsprove/root"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -61,6 +63,8 @@ var (
 			Digest:     "E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D",
 		},
 	}
+
+	NotDNSSECEnabledError = errors.New("RR does not exist and either no NSEC records returned or NSEC records are unsigned")
 )
 
 type dnskeyEntry struct {
@@ -187,12 +191,12 @@ func (client *Client) QueryWithProof(qtype, qclass uint16, name string) ([]proof
 	} else {
 		rrs = getNSECRRs(r.Ns, name)
 		if len(rrs) == 0 {
-			return nil, false, fmt.Errorf("RR does not exist and no NSEC records returned for %s %s", dns.TypeToString[qtype], name)
+			return nil, false, NotDNSSECEnabledError
 		}
 		log.Info("RR does not exist; got NSEC", "qtype", dns.TypeToString[qtype], "name", name)
 		sigs = findSignatures(r.Ns, rrs[0].Header().Name)
 		if len(sigs) == 0 {
-			return nil, false, fmt.Errorf("RR does not exist and no signatures provided for NSEC records for %s %s", dns.TypeToString[qtype], name)
+			return nil, false, NotDNSSECEnabledError
 		}
 	}
 
@@ -628,14 +632,26 @@ func claimCommand(args []string) {
 		os.Exit(1)
 	}
 
-	registrar, err := registrar.New(addr, conn)
-	if err != nil {
+	reg, err := registrar.New(addr, conn)
+	if err == nil {
+		if err := claimWithRegistrar(conn, name, reg); err != nil {
+			log.Crit("Error claiming name with registrar", "name", name, "error", err)
+			os.Exit(1)
+		}
+		return
+	} else if err != registrar.InterfaceNotSupportedError {
 		log.Crit("Could not instantiate DNSSEC registrar", "name", parentName, "err", err)
 		os.Exit(1)
 	}
 
-	if err := claimWithRegistrar(conn, name, registrar); err != nil {
-		log.Crit("Error claiming name with registrar", "name", name, "error", err)
+	root, err := root.New(addr, conn)
+	if err != nil {
+		log.Crit("Could not instantiate root contract", "name", parentName, "err", err)
+		os.Exit(1)
+	}
+
+	if err := claimWithRoot(conn, name, root); err != nil {
+		log.Crit("Error claiming name with root contract", "name", name, "error", err)
 		os.Exit(1)
 	}
 }
@@ -663,6 +679,48 @@ func claimWithRegistrar(conn *ethclient.Client, name string, registrar *registra
 		if err != nil {
 			return err
 		}
+		txids := make([]string, 0, len(txs))
+		for _, tx := range txs {
+			txids = append(txids, tx.Hash().String())
+		}
+		log.Info("Transactions sent", "txids", txids)
+	}
+
+	return nil
+}
+
+func claimWithRoot(conn *ethclient.Client, name string, root *root.Root) error {
+	sets, found, err := getProofs(dns.TypeTXT, "_ens.nic."+name)
+	if err != nil && err != NotDNSSECEnabledError {
+		return err
+	}
+
+	auth, err := makeTransactor(conn)
+	if err != nil {
+		log.Crit("Could not create transactor", "err", err)
+		os.Exit(1)
+	}
+
+	if found {
+		tx, err := root.Claim(auth, name, sets)
+		if err != nil {
+			return err
+		}
+		log.Info("Sent transaction", "tx", tx.Hash().String())
+	} else {
+		sets, found, err := getProofs(dns.TypeSOA, name)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("Cannot claim name %s: Not found in DNS", name)
+		}
+
+		txs, err := root.ClaimDefault(auth, name, sets)
+		if err != nil {
+			return err
+		}
+
 		txids := make([]string, 0, len(txs))
 		for _, tx := range txs {
 			txids = append(txids, tx.Hash().String())

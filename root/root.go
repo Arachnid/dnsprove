@@ -1,9 +1,9 @@
 // Copyright 2019 Nick Johnson. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
-package registrar
+package root
 
-//go:generate abigen --sol ../contracts/dnsregistrar.sol --pkg contracts --out ../contracts/dnsregistrar.go
+//go:generate abigen --sol ../contracts/root.sol --pkg contracts --out ../contracts/root.go
 
 import (
 	"errors"
@@ -20,32 +20,32 @@ import (
 	"github.com/miekg/dns"
 )
 
-var DNSSEC_CLAIM_INTERFACE_ID = [4]byte{0x1a, 0xa2, 0xe6, 0x41}
+var DNSSEC_ROOT_CLAIM_INTERFACE_ID = [4]byte{0xde, 0x0b, 0xa7, 0x5d}
 var InterfaceNotSupportedError = errors.New("Interface not supported")
 
-type DNSRegistrar struct {
-	r       *contracts.DNSRegistrar
+type Root struct {
+	r       *contracts.Root
 	backend bind.ContractBackend
 }
 
-func New(addr common.Address, backend bind.ContractBackend) (*DNSRegistrar, error) {
-	registrar, err := contracts.NewDNSRegistrar(addr, backend)
+func New(addr common.Address, backend bind.ContractBackend) (*Root, error) {
+	root, err := contracts.NewRoot(addr, backend)
 	if err != nil {
 		return nil, err
 	}
 
 	// Check it really implements the interface we need.
-	if ok, err := registrar.SupportsInterface(nil, DNSSEC_CLAIM_INTERFACE_ID); !ok || err != nil {
+	if ok, err := root.SupportsInterface(nil, DNSSEC_ROOT_CLAIM_INTERFACE_ID); !ok || err != nil {
 		return nil, InterfaceNotSupportedError
 	}
 
-	return &DNSRegistrar{
-		registrar,
+	return &Root{
+		root,
 		backend,
 	}, nil
 }
 
-func (r *DNSRegistrar) GetOracle() (*oracle.Oracle, error) {
+func (r *Root) GetOracle() (*oracle.Oracle, error) {
 	addr, err := r.r.Oracle(nil)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (r *DNSRegistrar) GetOracle() (*oracle.Oracle, error) {
 	return oracle.New(addr, r.backend)
 }
 
-func (r *DNSRegistrar) Claim(opts *bind.TransactOpts, name string, sets []proofs.SignedSet) (*types.Transaction, error) {
+func (r *Root) Claim(opts *bind.TransactOpts, name string, sets []proofs.SignedSet) (*types.Transaction, error) {
 	dnsname, err := oracle.PackName(name)
 	if err != nil {
 		return nil, err
@@ -77,8 +77,8 @@ func (r *DNSRegistrar) Claim(opts *bind.TransactOpts, name string, sets []proofs
 			return nil, err
 		}
 
-		log.Info("Transaction to claim()", "name", name, "proof", hexutil.Encode(proof))
-		return r.r.Claim(opts, dnsname, proof)
+		log.Info("Transaction to registerTLD()", "name", name, "proof", hexutil.Encode(proof))
+		return r.r.RegisterTLD(opts, dnsname, proof)
 	} else {
 		known, err := o.FindFirstUnknownProof(sets, true)
 		if err != nil {
@@ -90,12 +90,12 @@ func (r *DNSRegistrar) Claim(opts *bind.TransactOpts, name string, sets []proofs
 			return nil, err
 		}
 
-		log.Info("Transaction to proveAndClaim()", "name", name, "data", hexutil.Encode(data), "lastProof", hexutil.Encode(proof))
-		return r.r.ProveAndClaim(opts, dnsname, data, proof)
+		log.Info("Transaction to proveAndRegisterTLD()", "name", name, "data", hexutil.Encode(data), "lastProof", hexutil.Encode(proof))
+		return r.r.ProveAndRegisterTLD(opts, dnsname, data, proof)
 	}
 }
 
-func (r *DNSRegistrar) Unclaim(opts *bind.TransactOpts, name string, sets []proofs.SignedSet) ([]*types.Transaction, error) {
+func (r *Root) ClaimDefault(opts *bind.TransactOpts, name string, sets []proofs.SignedSet) ([]*types.Transaction, error) {
 	var txs []*types.Transaction
 
 	o, err := r.GetOracle()
@@ -111,7 +111,7 @@ func (r *DNSRegistrar) Unclaim(opts *bind.TransactOpts, name string, sets []proo
 	}
 
 	// We're deleting a domain. If it's not there, there's nothing to do.
-	_, _, hash, err := o.Rrdata(dns.TypeTXT, "_ens."+name)
+	_, _, hash, err := o.Rrdata(dns.TypeTXT, "_ens.nic."+name)
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +150,8 @@ func (r *DNSRegistrar) Unclaim(opts *bind.TransactOpts, name string, sets []proo
 	}
 
 	// Unclaim the name
-	log.Info("Sending transaction to unclaim name", "name", name)
-	tx, err := r.r.Claim(opts, dnsname, []byte{})
+	log.Info("Sending transaction to set name to default registrar", "name", name)
+	tx, err := r.r.RegisterTLD(opts, dnsname, []byte{})
 	if err != nil {
 		return txs, err
 	}
